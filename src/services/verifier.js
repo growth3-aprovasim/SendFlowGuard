@@ -146,8 +146,9 @@ export class VerifierService {
           await this.handleBrokenGroup(group, linkUrl, summary);
         }
 
-        // Pequeno intervalo entre requisições para evitar flood
-        await new Promise(r => setTimeout(r, 600));
+        // Intervalo com jitter entre requisições para evitar rate-limit e bloqueio de IP no WhatsApp
+        const delayBetweenGroups = 1200 + Math.floor(Math.random() * 800);
+        await new Promise(r => setTimeout(r, delayBetweenGroups));
       }
 
       summary.finishedAt = new Date().toISOString();
@@ -177,7 +178,29 @@ export class VerifierService {
    */
   async handleBrokenGroup(group, oldUrl, summary) {
     try {
-      this.addLog('warn', `[Auto-Recuperação] Solicitando novo link para o grupo "${group.name}" no SendFlow...`);
+      // 🛡️ TRAVA RÍGIDA DE SEGURANÇA: Limite de 4 atualizações a cada 15 minutos
+      // A quinta chamada derruba a chave de API na SendFlow.
+      const safety = sendflowClient.getUpdateCooldownStatus();
+      if (!safety.canUpdate) {
+        this.addLog(
+          'warn',
+          `🛑 [TRAVA DE SEGURANÇA] Limite de 4 alterações nos últimos 15 min atingido! O grupo "${group.name}" aguardará ${safety.cooldownText} para renovação segura da chave.`
+        );
+        this.updateGroupMemory(group, {
+          isValid: false,
+          status: 'QUEUED_RATE_LIMIT',
+          message: `Aguardando cooldown de 15 min da API (${safety.cooldownText})`,
+        });
+
+        Notifier.notify({
+          type: 'RATE_LIMIT_SAFETY',
+          group,
+          cooldownText: safety.cooldownText,
+        }).catch(() => {});
+        return;
+      }
+
+      this.addLog('warn', `[Auto-Recuperação] Solicitando novo link para o grupo "${group.name}" no SendFlow (${safety.count + 1}/4 na janela)...`);
       
       const updateResult = await sendflowClient.updateGroupInviteCode(group.id);
       this.addLog('success', `[Auto-Recuperação] ${updateResult.message} (Action ID: ${updateResult.actionId || 'ok'})`);
@@ -276,6 +299,7 @@ export class VerifierService {
         accountsFrom: config.sendflow.accountsFrom,
         recheckDelaySeconds: config.sendflow.recheckDelaySeconds,
       },
+      updateCooldown: sendflowClient.getUpdateCooldownStatus(),
     };
   }
 }

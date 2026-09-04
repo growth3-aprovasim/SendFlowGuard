@@ -31,6 +31,7 @@ export const config = {
     enabled: process.env.ENABLE_WEB_DASHBOARD !== 'false',
   },
   notifications: {
+    slackWebhookUrl: process.env.SLACK_WEBHOOK_URL || '',
     discordWebhookUrl: process.env.DISCORD_WEBHOOK_URL || '',
     telegramBotToken: process.env.TELEGRAM_BOT_TOKEN || '',
     telegramChatId: process.env.TELEGRAM_CHAT_ID || '',

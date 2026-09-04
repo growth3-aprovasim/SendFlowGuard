@@ -37,9 +37,47 @@ export class Notifier {
       title = '🟢 Link Mãe Operacional Novamente';
       description = `O **Link Mãe** voltou a operar e redirecionar normalmente.\n**URL:** ${payload.url}\n**Destino:** ${payload.finalUrl || 'OK'}`;
       color = 0x2ecc71; // Verde
+    } else if (type === 'RATE_LIMIT_SAFETY') {
+      title = '🛑 Trava de Segurança da API SendFlow Acionada';
+      description = `Limite máximo de 4 atualizações a cada 15 minutos atingido!\nO grupo **${group.name || group.id}** foi enfileirado para proteger sua chave de API de ser derrubada.\n**Tempo restante de cooldown:** ${payload.cooldownText || '15 minutos'}.`;
+      color = 0xf59e0b; // Laranja/Âmbar
     }
 
-    // Discord Webhook
+    // Slack Webhook
+    if (config.notifications.slackWebhookUrl) {
+      try {
+        const hexColor = '#' + color.toString(16).padStart(6, '0');
+        const slackPayload = {
+          text: `*${title}*\n${description.replace(/\*\*/g, '*')}`,
+          attachments: [
+            {
+              color: hexColor,
+              fallback: `${title}: ${description}`,
+              fields: [
+                {
+                  title: 'Data/Hora',
+                  value: timestamp,
+                  short: true,
+                },
+                {
+                  title: 'Origem',
+                  value: 'SendFlow Guard Monitor',
+                  short: true,
+                },
+              ],
+            },
+          ],
+        };
+
+        await fetch(config.notifications.slackWebhookUrl, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(slackPayload),
+        });
+      } catch (err) {
+        console.error('[Notifier] Erro ao enviar Slack Webhook:', err.message);
+      }
+    }
     if (config.notifications.discordWebhookUrl) {
       try {
         await fetch(config.notifications.discordWebhookUrl, {

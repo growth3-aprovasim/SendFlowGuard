@@ -3,12 +3,61 @@ import path from 'path';
 import { config, ROOT_DIR } from '../config.js';
 
 const CACHE_FILE = path.join(ROOT_DIR, '.sendflow_groups_cache.json');
+const ACTION_TRACKER_FILE = path.join(ROOT_DIR, '.sendflow_action_timestamps.json');
 
 export class SendFlowClient {
   constructor() {
     this.lastGetTimestamp = 0;
     this.cachedGroups = [];
     this.lastSuccessfulFetchTime = null;
+    this.actionTimestamps = this.loadActionTimestamps();
+  }
+
+  loadActionTimestamps() {
+    try {
+      if (fs.existsSync(ACTION_TRACKER_FILE)) {
+        const data = JSON.parse(fs.readFileSync(ACTION_TRACKER_FILE, 'utf-8'));
+        const now = Date.now();
+        const WINDOW_MS = 15 * 60 * 1000;
+        if (Array.isArray(data)) {
+          return data.filter(t => typeof t === 'number' && (now - t) < WINDOW_MS);
+        }
+      }
+    } catch {}
+    return [];
+  }
+
+  saveActionTimestamps() {
+    try {
+      fs.writeFileSync(ACTION_TRACKER_FILE, JSON.stringify(this.actionTimestamps, null, 2), 'utf-8');
+    } catch {}
+  }
+
+  /**
+   * Verifica se a API do SendFlow pode receber uma nova ação de atualização.
+   * Regra rígida de segurança: máximo de 4 alterações a cada 15 minutos.
+   * A quinta chamada derruba a chave de API.
+   */
+  getUpdateCooldownStatus() {
+    const now = Date.now();
+    const WINDOW_MS = 15 * 60 * 1000;
+    this.actionTimestamps = this.actionTimestamps.filter(t => (now - t) < WINDOW_MS);
+    this.saveActionTimestamps();
+
+    const count = this.actionTimestamps.length;
+    const canUpdate = count < 4;
+    const oldest = this.actionTimestamps[0];
+    const waitMs = oldest ? Math.max(0, (oldest + WINDOW_MS) - now) : 0;
+
+    return {
+      canUpdate,
+      count,
+      maxAllowed: 4,
+      remainingCount: Math.max(0, 4 - count),
+      waitMs,
+      remainingMinutes: Math.ceil(waitMs / 60000),
+      cooldownText: `${Math.ceil(waitMs / 60000)} min (${Math.round(waitMs / 1000)}s)`,
+    };
   }
 
   getHeaders(isPost = false) {
@@ -164,6 +213,18 @@ export class SendFlowClient {
       throw new Error('Nenhum grupo informado para atualizar link.');
     }
 
+    // TRAVA DE SEGURANÇA: Máximo de 4 alterações a cada 15 minutos
+    const safety = this.getUpdateCooldownStatus();
+    if (!safety.canUpdate) {
+      const err = new Error(
+        `Trava de Segurança: Limite de 4 atualizações a cada 15 min atingido (${safety.count}/4). Aguarde ${safety.cooldownText} para proteger sua chave de API.`
+      );
+      err.isSafetyLimit = true;
+      err.cooldownText = safety.cooldownText;
+      err.remainingMinutes = safety.remainingMinutes;
+      throw err;
+    }
+
     const payload = {
       releaseId,
       accountsFrom: config.sendflow.accountsFrom,
@@ -194,10 +255,17 @@ export class SendFlowClient {
     }
 
     if (response.status === 201) {
+      // Registra a ação executada com sucesso
+      this.actionTimestamps.push(Date.now());
+      this.saveActionTimestamps();
+
+      const quotaMsg = `[Uso seguro: ${this.actionTimestamps.length}/4 ações na janela de 15 min]`;
       return {
         success: true,
-        message: data.message || 'Ação criada com sucesso no SendFlow',
+        message: `${data.message || 'Ação criada com sucesso no SendFlow'} ${quotaMsg}`,
         actionId: data.actionId || data.id,
+        quotaUsed: this.actionTimestamps.length,
+        quotaRemaining: Math.max(0, 4 - this.actionTimestamps.length),
       };
     }
 

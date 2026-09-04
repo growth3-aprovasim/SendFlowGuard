@@ -30,25 +30,61 @@ export class MasterLinkChecker {
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), timeout);
 
-      // Faz a requisição seguindo os redirecionamentos para achar o destino final
-      const response = await fetch(url, {
-        method: 'GET',
-        signal: controller.signal,
-        redirect: 'follow',
-        headers: {
-          'User-Agent':
-            'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36',
-          'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-          'Accept-Language': 'pt-BR,pt;q=0.9,en-US;q=0.8',
-          'Cache-Control': 'no-cache',
-        },
-      });
+      let currentUrl = url;
+      let response = null;
+      let finalUrl = url;
+      let statusCode = 200;
+      let redirectCount = 0;
+      const MAX_REDIRECTS = 6;
+
+      // Segue a cadeia de redirecionamentos manualmente para inspecionar cada salto
+      while (redirectCount < MAX_REDIRECTS) {
+        response = await fetch(currentUrl, {
+          method: 'GET',
+          signal: controller.signal,
+          redirect: 'manual',
+          headers: {
+            'User-Agent':
+              'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36',
+            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+            'Accept-Language': 'pt-BR,pt;q=0.9,en-US;q=0.8',
+          },
+        });
+
+        statusCode = response.status;
+        finalUrl = currentUrl;
+
+        // Se for redirecionamento (301, 302, 303, 307, 308)
+        if ([301, 302, 303, 307, 308].includes(statusCode)) {
+          const locationHeader = response.headers.get('location');
+          if (locationHeader) {
+            currentUrl = new URL(locationHeader, currentUrl).href;
+            finalUrl = currentUrl;
+            redirectCount++;
+            // Se já apontou para o WhatsApp, encontramos o destino!
+            if (finalUrl.includes('chat.whatsapp.com')) {
+              break;
+            }
+            continue;
+          }
+        }
+        break;
+      }
 
       clearTimeout(timeoutId);
-
       const durationMs = Date.now() - startTime;
-      const finalUrl = response.url || url;
-      const statusCode = response.status;
+
+      let htmlText = '';
+      try {
+        if (response) htmlText = await response.text();
+      } catch {}
+
+      // Se a página for um pre-lander/pixel da SendFlow (ex: sndflw.com/i/...),
+      // extrai o link do WhatsApp embutido no HTML/script
+      const htmlWaMatch = htmlText.match(/https?:\/\/(?:chat\.)?whatsapp\.com\/([A-Za-z0-9_-]+)/i);
+      if (!finalUrl.includes('chat.whatsapp.com') && htmlWaMatch) {
+        finalUrl = htmlWaMatch[0];
+      }
 
       // Se o link mãe retornou erro HTTP (ex: 404, 500, 502, 503)
       if (statusCode >= 400) {
