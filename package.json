@@ -1,0 +1,24 @@
+{
+  "name": "sendflow-group-verifier",
+  "version": "1.0.0",
+  "description": "Sistema de verificação periódica e auto-recuperação de links de grupos de WhatsApp via SendFlow",
+  "main": "src/index.js",
+  "type": "module",
+  "scripts": {
+    "start": "node src/index.js",
+    "dev": "node --watch src/index.js",
+    "test": "node test/test-checker.js"
+  },
+  "keywords": [
+    "sendflow",
+    "whatsapp",
+    "group-links",
+    "monitor"
+  ],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "dotenv": "^16.4.7",
+    "express": "^4.21.2"
+  }
+}

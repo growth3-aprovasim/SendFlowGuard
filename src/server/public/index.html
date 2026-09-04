@@ -1,0 +1,242 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>SendFlow Guard • Monitor de Links de Grupos</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/style.css" />
+</head>
+<body>
+  <div class="app-layout">
+    <!-- Header -->
+    <header class="navbar">
+      <div class="brand">
+        <div class="brand-icon">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
+            <path d="m9 12 2 2 4-4"/>
+          </svg>
+        </div>
+        <div>
+          <div class="brand-title">SendFlow Guard</div>
+          <div class="brand-sub">Verificação Contínua & Auto-Recuperação de Grupos</div>
+        </div>
+      </div>
+
+      <div class="header-actions">
+        <div id="campaignBadge" class="chip">
+          <span class="chip-label">Campanha:</span>
+          <span id="campaignIdText" class="chip-val mono">Carregando...</span>
+        </div>
+
+        <button id="toggleSchedulerBtn" class="btn btn-secondary">
+          <span class="btn-icon" id="schedulerIcon">⏸️</span>
+          <span id="schedulerText">Pausar Agendador</span>
+        </button>
+
+        <button id="verifyNowBtn" class="btn btn-primary">
+          <svg class="btn-icon spin-on-active" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2">
+            <polyline points="23 4 23 10 17 10"></polyline>
+            <polyline points="1 20 1 14 7 14"></polyline>
+            <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"></path>
+          </svg>
+          <span id="verifyBtnLabel">Verificar Agora</span>
+        </button>
+      </div>
+    </header>
+
+    <!-- Banner de Alerta de Configuração (se não configurado) -->
+    <div id="configAlert" class="alert alert-warning" style="display: none;">
+      <div class="alert-icon">⚠️</div>
+      <div class="alert-content">
+        <div class="alert-title">Configuração do SendFlow Pendente</div>
+        <div class="alert-desc">Sua chave de API ou ID de campanha no arquivo <code>.env</code> ainda está com valores padrão. Preencha o <code>.env</code> para sincronizar com sua campanha real.</div>
+      </div>
+    </div>
+
+    <!-- Indicador de Status Geral -->
+    <div class="status-ribbon">
+      <div class="ribbon-item">
+        <span class="dot" id="systemStateDot"></span>
+        <span id="systemStateText">Sistema Ativo</span>
+      </div>
+      <div class="ribbon-item">
+        <span class="text-muted">Intervalo Agendado:</span>
+        <strong id="intervalText" class="mono">-- min</strong>
+      </div>
+      <div class="ribbon-item">
+        <span class="text-muted">Última Checagem:</span>
+        <strong id="lastCheckText" class="mono">Ainda não executada</strong>
+      </div>
+      <div class="ribbon-item">
+        <span class="text-muted">Próxima Checagem em:</span>
+        <strong id="countdownText" class="badge-countdown mono">--:--</strong>
+      </div>
+    </div>
+
+    <!-- Card de Destaque: Monitoramento do Link Mãe -->
+    <section class="card master-link-card" id="masterLinkCard">
+      <div class="master-link-header">
+        <div class="master-link-title-box">
+          <div class="master-link-icon-wrap">👑</div>
+          <div>
+            <div class="master-link-title">Link Mãe (Redirecionador Principal)</div>
+            <div class="master-link-sub">O canal de entrada mais crítico da sua campanha • Monitorado em tempo real</div>
+          </div>
+        </div>
+        <div class="master-link-badge-box">
+          <span id="masterLinkStatusBadge" class="master-badge badge-unconfigured">● Não Configurado</span>
+          <button id="testMasterLinkBtn" class="btn btn-secondary btn-sm">
+            ⚡ Testar Link Mãe
+          </button>
+        </div>
+      </div>
+
+      <div class="master-link-body">
+        <div class="master-detail-row">
+          <div class="master-col">
+            <span class="detail-label">URL do Link Mãe:</span>
+            <div class="detail-val-box">
+              <span id="masterLinkUrlText" class="mono text-truncate">Defina MASTER_LINK_URL no arquivo .env</span>
+              <button id="copyMasterLinkBtn" class="btn-ghost-sm" title="Copiar" style="display: none;">📋</button>
+            </div>
+          </div>
+
+          <div class="master-col">
+            <span class="detail-label">Destino Atual (WhatsApp):</span>
+            <div class="detail-val-box" id="masterDestinationBox">
+              <span id="masterDestinationText" class="mono text-muted">Aguardando verificação...</span>
+            </div>
+          </div>
+
+          <div class="master-col col-sm">
+            <span class="detail-label">Tempo de Resposta:</span>
+            <div id="masterLatencyText" class="mono font-bold">-- ms</div>
+          </div>
+
+          <div class="master-col col-sm">
+            <span class="detail-label">Frequência / Checagem:</span>
+            <div id="masterIntervalText" class="mono text-muted">A cada 60s</div>
+          </div>
+        </div>
+
+        <div id="masterLinkMsg" class="master-alert" style="display: none;"></div>
+      </div>
+    </section>
+
+    <!-- Métricas -->
+    <section class="metrics-grid">
+      <div class="metric-card">
+        <div class="metric-header">
+          <span class="metric-label">Total de Grupos</span>
+          <span class="metric-icon-wrap icon-purple">👥</span>
+        </div>
+        <div class="metric-value" id="metricTotal">0</div>
+        <div class="metric-sub">Sincronizados da campanha</div>
+      </div>
+
+      <div class="metric-card">
+        <div class="metric-header">
+          <span class="metric-label">Links Ativos (OK)</span>
+          <span class="metric-icon-wrap icon-green">✅</span>
+        </div>
+        <div class="metric-value text-success" id="metricValid">0</div>
+        <div class="metric-sub">Respondendo com nome no WhatsApp</div>
+      </div>
+
+      <div class="metric-card">
+        <div class="metric-header">
+          <span class="metric-label">Revogados Detectados</span>
+          <span class="metric-icon-wrap icon-red">🚨</span>
+        </div>
+        <div class="metric-value text-danger" id="metricRevoked">0</div>
+        <div class="metric-sub">Identificados sem nome na tela</div>
+      </div>
+
+      <div class="metric-card">
+        <div class="metric-header">
+          <span class="metric-label">Links Recuperados</span>
+          <span class="metric-icon-wrap icon-blue">🔄</span>
+        </div>
+        <div class="metric-value text-info" id="metricRecovered">0</div>
+        <div class="metric-sub">Novos links gerados pelo SendFlow</div>
+      </div>
+    </section>
+
+    <!-- Main Content Area -->
+    <main class="dashboard-grid">
+      <!-- Coluna Principal: Grupos -->
+      <section class="card panel-groups">
+        <div class="card-header">
+          <div class="card-title-group">
+            <h2 class="card-title">Grupos da Campanha</h2>
+            <span class="badge" id="groupsCountBadge">0 grupos</span>
+          </div>
+          <div class="table-actions">
+            <input type="text" id="filterInput" class="search-input" placeholder="Buscar por nome ou ID..." />
+          </div>
+        </div>
+
+        <div class="table-container">
+          <table class="data-table">
+            <thead>
+              <tr>
+                <th>Grupo</th>
+                <th>Link de Convite</th>
+                <th>Status</th>
+                <th>Participantes</th>
+                <th>Última Checagem</th>
+                <th class="text-right">Ações</th>
+              </tr>
+            </thead>
+            <tbody id="groupsTableBody">
+              <tr>
+                <td colspan="6" class="text-center py-6 text-muted">
+                  Nenhum grupo carregado ainda. Aguardando primeira verificação...
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <!-- Coluna Lateral: Testador Rápido & Console de Logs -->
+      <div class="sidebar-panels">
+        <!-- Testador Rápido de Link -->
+        <section class="card panel-quicktest">
+          <div class="card-header">
+            <h2 class="card-title">🧪 Testador Rápido de Link</h2>
+          </div>
+          <div class="quicktest-body">
+            <p class="text-muted text-sm">Cole qualquer link ou código de grupo do WhatsApp para testar a resposta imediatamente:</p>
+            <div class="quicktest-form">
+              <input type="text" id="quickTestInput" class="text-input" placeholder="https://chat.whatsapp.com/... ou código" />
+              <button id="quickTestBtn" class="btn btn-secondary">Testar</button>
+            </div>
+            <div id="quickTestResult" class="quicktest-result" style="display: none;"></div>
+          </div>
+        </section>
+
+        <!-- Console de Logs ao Vivo -->
+        <section class="card panel-logs">
+          <div class="card-header">
+            <div class="card-title-group">
+              <h2 class="card-title">🖥️ Console de Atividades ao Vivo</h2>
+              <span class="live-indicator">LIVE</span>
+            </div>
+            <button id="clearLogsBtn" class="btn-ghost-sm">Limpar</button>
+          </div>
+          <div id="logsTerminal" class="logs-terminal">
+            <div class="log-entry log-info">[SISTEMA] Inicializando monitor SendFlow Guard...</div>
+          </div>
+        </section>
+      </div>
+    </main>
+  </div>
+
+  <script src="/app.js"></script>
+</body>
+</html>
