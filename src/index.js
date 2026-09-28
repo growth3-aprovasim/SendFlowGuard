@@ -3,22 +3,20 @@ import { createServer } from './server/app.js';
 import { schedulerService } from './services/scheduler.js';
 import { verifierService } from './services/verifier.js';
 import { masterLinkMonitor } from './services/masterLinkMonitor.js';
+import { campaignManager } from './services/campaignManager.js';
 
 function printBanner() {
-  const masterLinkInfo = config.masterLink.enabled
-    ? `${config.masterLink.url} (a cada ${config.masterLink.intervalSeconds}s)`
-    : '(não configurado no .env)';
+  const campaigns = campaignManager.getAll();
+  const activeCampaigns = campaignManager.getActiveCampaigns();
 
   console.log(`
 ===========================================================
-   🛡️  SENDFLOW GUARD - MONITOR & AUTO-RECUPERAÇÃO  🛡️
+   🛡️  SENDFLOW GUARD - MULTI-CAMPANHAS & AUTO-RECUPERAÇÃO  🛡️
 ===========================================================
-  • Campanha (Release ID): ${config.sendflow.releaseId || '(não definida no .env)'}
-  • Intervalo Grupos: a cada ${config.scheduler.intervalMinutes} minutos
-  • Link Mãe: ${masterLinkInfo}
+  • Campanhas Cadastradas: ${campaigns.length} (${activeCampaigns.length} ativas)
+  • Intervalo de Verificação: a cada ${config.scheduler.intervalMinutes} minutos
   • Dashboard Web: http://localhost:${config.server.port}
-  • Origem das contas: ${config.sendflow.accountsFrom}
-  • Reteste após renovação: ${config.sendflow.recheckDelaySeconds}s
+  • Trava de Segurança API: Máximo 4 atualizações a cada 15 min
 ===========================================================
 `);
 }
@@ -33,7 +31,7 @@ async function bootstrap() {
 
   if (!validation.isValid) {
     validation.errors.forEach(e => verifierService.addLog('error', `CONFIG: ${e}`));
-    console.log('\n⚠️  ATENÇÃO: Configure o arquivo .env com sua SENDFLOW_API_KEY e SENDFLOW_RELEASE_ID para que o monitoramento funcione.\n');
+    console.log('\n⚠️  ATENÇÃO: Configure o arquivo .env com sua SENDFLOW_API_KEY para autenticar na API do SendFlow.\n');
   }
 
   // Inicializa servidor Web
@@ -56,16 +54,13 @@ async function bootstrap() {
     });
   }
 
+  // Inicializa monitoramento contínuo dos Links Mãe
+  masterLinkMonitor.start();
+
   // Inicializa agendador de checagens automáticas dos grupos
   if (config.scheduler.autoStart) {
-    // Se a config for válida, roda primeira verificação
-    const shouldRunFirst = validation.isValid;
-    schedulerService.start(shouldRunFirst);
-  }
-
-  // Inicializa monitoramento contínuo do Link Mãe (independente e de alta frequência)
-  if (config.masterLink.enabled) {
-    masterLinkMonitor.start();
+    const hasActiveCampaigns = campaignManager.getActiveCampaigns().length > 0;
+    schedulerService.start(hasActiveCampaigns && validation.isValid);
   }
 
   // Tratamento de encerramento seguro

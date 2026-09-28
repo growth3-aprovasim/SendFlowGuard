@@ -29,7 +29,7 @@ export class SchedulerService {
     this.updateNextRunTime();
 
     if (runImmediately) {
-      // Dispara 3 segundos após a inicialização para permitir que o servidor suba
+      // Dispara 3 segundos após a inicialização para permitir que o servidor web suba
       setTimeout(() => {
         if (this.isActive) {
           this.triggerCheck();

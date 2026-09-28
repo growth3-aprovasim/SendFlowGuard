@@ -1,0 +1,15 @@
+[
+  {
+    "id": "camp_ccdeba49",
+    "name": "Campanha Principal",
+    "releaseId": "WkkStpY6jdNudCOLgfwC",
+    "masterLinkUrl": "https://sndflw.com/i/pes-set-26-vip",
+    "accountsFrom": "release",
+    "accounts": [],
+    "checkIntervalMinutes": 15,
+    "masterLinkIntervalSeconds": 60,
+    "enabled": true,
+    "createdAt": "2026-09-28T14:52:16.356Z",
+    "updatedAt": "2026-09-28T14:52:16.357Z"
+  }
+]

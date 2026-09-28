@@ -36,7 +36,6 @@ export class WhatsAppChecker {
       'Sec-Fetch-Site': 'none',
       'Sec-Fetch-User': '?1',
       'Upgrade-Insecure-Requests': '1',
-      // Cookies simulados para sinalizar preferência de idioma e consentimento
       'Cookie': 'wa_lang_pref=pt_BR; wa_ul=pt_BR; dpr=1',
       'Cache-Control': 'no-cache',
       'Pragma': 'no-cache',
@@ -98,18 +97,40 @@ export class WhatsAppChecker {
     const twitterTitle = twitterTitleMatches.length > 0 ? twitterTitleMatches[0] : '';
     const rawTitleTag = titleTagMatches.length > 0 ? titleTagMatches[0] : '';
 
-    // Ignora títulos genéricos da página
+    // Títulos genéricos que NÃO representam o nome real de um grupo
     const genericTitles = [
-      'WhatsApp Group Invite',
-      'Convite para grupo do WhatsApp',
-      'Convite para conversa em grupo',
-      'WhatsApp',
-      '',
+      'whatsapp group invite',
+      'convite para grupo do whatsapp',
+      'convite para conversa em grupo',
+      'whatsapp',
+      'parece que você ainda não instalou o whatsapp.',
+      'parece que você ainda não instalou o whatsapp',
+      'looks like you don\'t have whatsapp installed!',
+      'looks like you don\'t have whatsapp installed',
+      'entrar na conversa',
+      'join chat',
+      'baixar o whatsapp',
+      'download whatsapp',
     ];
 
-    let detectedTitle = groupH3 || ogTitle || twitterTitle;
-    if (!detectedTitle && rawTitleTag && !genericTitles.includes(rawTitleTag)) {
-      detectedTitle = rawTitleTag.replace(/\s*-\s*WhatsApp.*$/i, '').trim();
+    function isGeneric(str) {
+      if (!str || !str.trim()) return true;
+      const lower = str.toLowerCase().trim();
+      return genericTitles.some(g => lower === g || (g.length > 6 && lower.startsWith(g)));
+    }
+
+    let detectedTitle = null;
+    if (groupH3 && !isGeneric(groupH3)) {
+      detectedTitle = groupH3;
+    } else if (ogTitle && !isGeneric(ogTitle)) {
+      detectedTitle = ogTitle;
+    } else if (twitterTitle && !isGeneric(twitterTitle)) {
+      detectedTitle = twitterTitle;
+    } else if (rawTitleTag && !isGeneric(rawTitleTag)) {
+      const cleaned = rawTitleTag.replace(/\s*-\s*WhatsApp.*$/i, '').trim();
+      if (!isGeneric(cleaned)) {
+        detectedTitle = cleaned;
+      }
     }
 
     // Verifica se a página contém a estrutura canônica de convite
@@ -120,12 +141,7 @@ export class WhatsAppChecker {
       html.includes('WhatsApp Group Invite') ||
       html.includes('action-icon');
 
-    // Assinatura específica de link comprovadamente revogado:
-    // O layout de convite existe, mas o título está explicitamente vazio
-    const isExplicitlyRevoked =
-      hasInviteLayout &&
-      (!detectedTitle || detectedTitle.length === 0) &&
-      (html.includes('class="_9vd5 _9scr"') || html.includes('property="og:title" content=""'));
+    const isExplicitlyRevoked = hasInviteLayout && !detectedTitle;
 
     return {
       isInterrupted: false,
@@ -158,8 +174,6 @@ export class WhatsAppChecker {
 
   /**
    * Verifica se o link de convite do WhatsApp está ativo e válido.
-   * Executa múltiplas camadas de confirmação (Desktop + Mobile) antes de
-   * considerar um link revogado, eliminando falsos positivos.
    */
   static async checkInvite(inviteCodeOrUrl, options = {}) {
     const startTime = Date.now();
@@ -211,23 +225,18 @@ export class WhatsAppChecker {
           durationMs: Date.now() - startTime,
         };
       }
-
-      // Se foi interrompido por pop-up de cookies ou bloqueio temporário na VPS:
-      // Não marca como quebrado! Tenta a via Mobile
     } catch (err1) {
-      // Erro de rede temporário, continua para a tentativa de confirmação
+      // Continua para a tentativa de confirmação
     }
 
     // Pausa de 1 segundo antes da confirmação
-    await new Promise(r => setTimeout(r, 1200));
+    await new Promise(r => setTimeout(r, 1000));
 
     // === TENTATIVA 2: Confirmação via Headers Mobile Safari ===
     try {
       const page2 = await this.fetchPage(url, this.getMobileHeaders(), 10000);
       const parsed2 = this.parseInviteHtml(page2.text, page2.status);
 
-      // Se a versão mobile identificou o título do grupo: VÁLIDO!
-      // (O erro anterior era apenas o pop-up de cookies do desktop)
       if (parsed2.detectedTitle) {
         return {
           isValid: true,
@@ -235,17 +244,15 @@ export class WhatsAppChecker {
           inviteCode,
           url,
           status: 'VALID',
-          message: `Link ativo e validado via mobile: "${parsed2.detectedTitle}"`,
+          message: `Link ativo e validado: "${parsed2.detectedTitle}"`,
           checkedAt: new Date().toISOString(),
           durationMs: Date.now() - startTime,
         };
       }
 
-      // Se foi detectado pop-up de cookies ou captcha também no mobile:
-      // O link NÃO está quebrado, é apenas um bloqueio temporário de IP/consentimento.
       if (parsed2.isInterrupted) {
         return {
-          isValid: true, // Mantém como válido para NÃO revogar indevidamente
+          isValid: true,
           title: null,
           inviteCode,
           url,
@@ -256,32 +263,28 @@ export class WhatsAppChecker {
         };
       }
 
-      // Somente declara REVOKED se houver confirmação explícita de layout de convite com nome vazio
-      if (parsed2.isExplicitlyRevoked) {
-        return {
-          isValid: false,
-          title: null,
-          inviteCode,
-          url,
-          status: 'REVOKED',
-          message: 'Link revogado confirmado (Nome do grupo vazio na tela de convite).',
-          checkedAt: new Date().toISOString(),
-          durationMs: Date.now() - startTime,
-        };
-      }
+      // Declarar REVOKED quando não há título de grupo real
+      return {
+        isValid: false,
+        title: null,
+        inviteCode,
+        url,
+        status: 'REVOKED',
+        message: 'Link revogado confirmado (Nenhum nome de grupo detectado na tela de convite).',
+        checkedAt: new Date().toISOString(),
+        durationMs: Date.now() - startTime,
+      };
     } catch (err2) {
       // Falha na requisição mobile
     }
 
-    // Caso a página não tenha respondido com o formato esperado nem confirmado revogação:
-    // PREVENÇÃO DE FALSO POSITIVO: Em caso de dúvida, NÃO considera revogado!
     return {
-      isValid: true, // Seguro: não dispara alteração de link
+      isValid: false,
       title: null,
       inviteCode,
       url,
-      status: 'INCONCLUSIVE',
-      message: 'Resposta inconclusiva do WhatsApp (provável instabilidade ou bloqueio temporário). Nenhuma ação tomada.',
+      status: 'REVOKED',
+      message: 'Não foi possível validar o link de convite do WhatsApp.',
       checkedAt: new Date().toISOString(),
       durationMs: Date.now() - startTime,
     };

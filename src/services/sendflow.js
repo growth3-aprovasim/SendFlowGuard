@@ -2,15 +2,15 @@ import fs from 'fs';
 import path from 'path';
 import { config, ROOT_DIR } from '../config.js';
 
-const CACHE_FILE = path.join(ROOT_DIR, '.sendflow_groups_cache.json');
+const CACHE_STORE_FILE = path.join(ROOT_DIR, '.sendflow_cache_store.json');
 const ACTION_TRACKER_FILE = path.join(ROOT_DIR, '.sendflow_action_timestamps.json');
 
 export class SendFlowClient {
   constructor() {
-    this.lastGetTimestamp = 0;
-    this.cachedGroups = [];
-    this.lastSuccessfulFetchTime = null;
+    this.releaseFetchTimestamps = new Map(); // releaseId -> timestamp
+    this.cachedGroupsByRelease = new Map(); // releaseId -> groups array
     this.actionTimestamps = this.loadActionTimestamps();
+    this.loadCacheStoreFromDisk();
   }
 
   loadActionTimestamps() {
@@ -33,10 +33,40 @@ export class SendFlowClient {
     } catch {}
   }
 
+  loadCacheStoreFromDisk() {
+    try {
+      if (fs.existsSync(CACHE_STORE_FILE)) {
+        const raw = JSON.parse(fs.readFileSync(CACHE_STORE_FILE, 'utf-8'));
+        if (raw && typeof raw === 'object') {
+          for (const [releaseId, data] of Object.entries(raw)) {
+            if (Array.isArray(data.groups)) {
+              this.cachedGroupsByRelease.set(releaseId, data.groups);
+              if (data.timestamp) {
+                this.releaseFetchTimestamps.set(releaseId, data.timestamp);
+              }
+            }
+          }
+        }
+      }
+    } catch {}
+  }
+
+  saveCacheStoreToDisk() {
+    try {
+      const store = {};
+      for (const [releaseId, groups] of this.cachedGroupsByRelease.entries()) {
+        store[releaseId] = {
+          groups,
+          timestamp: this.releaseFetchTimestamps.get(releaseId) || Date.now(),
+        };
+      }
+      fs.writeFileSync(CACHE_STORE_FILE, JSON.stringify(store, null, 2), 'utf-8');
+    } catch {}
+  }
+
   /**
-   * Verifica se a API do SendFlow pode receber uma nova ação de atualização.
-   * Regra rígida de segurança: máximo de 4 alterações a cada 15 minutos.
-   * A quinta chamada derruba a chave de API.
+   * Status global da trava de segurança da API do SendFlow.
+   * Regra rígida: máximo de 4 alterações a cada 15 minutos para toda a conta.
    */
   getUpdateCooldownStatus() {
     const now = Date.now();
@@ -73,35 +103,38 @@ export class SendFlowClient {
   }
 
   /**
-   * Busca os grupos da campanha no SendFlow
+   * Busca os grupos de uma campanha específica no SendFlow com cache inteligente e proteção de rate-limit (10min por releaseId)
    * @param {string} releaseId 
-   * @param {boolean} force - Se deve forçar chamada mesmo se recente
+   * @param {boolean} force 
    * @returns {Promise<{groups: Array, fromCache: boolean, message?: string}>}
    */
   async getGroups(releaseId = config.sendflow.releaseId, force = false) {
-    if (!releaseId) {
+    if (!releaseId || !releaseId.trim()) {
       throw new Error('SendFlow releaseId não informado.');
     }
 
+    const cleanReleaseId = releaseId.trim();
     const now = Date.now();
-    const elapsedSinceLast = now - this.lastGetTimestamp;
+    const lastFetch = this.releaseFetchTimestamps.get(cleanReleaseId) || 0;
+    const elapsedSinceLast = now - lastFetch;
     const TEN_MINUTES_MS = 10 * 60 * 1000;
 
-    // Se temos grupos em cache e a última requisição foi há menos de 10 minutos (e não é forçado),
-    // podemos retornar o cache ou avisar para evitar o rate-limit 403
-    if (!force && this.cachedGroups.length > 0 && elapsedSinceLast < TEN_MINUTES_MS) {
+    const cached = this.cachedGroupsByRelease.get(cleanReleaseId) || [];
+
+    // Se temos grupos em cache e a última requisição desta campanha foi há menos de 10 min
+    if (!force && cached.length > 0 && elapsedSinceLast < TEN_MINUTES_MS) {
       const remainingMinutes = Math.ceil((TEN_MINUTES_MS - elapsedSinceLast) / 60000);
       return {
-        groups: this.cachedGroups,
+        groups: cached,
         fromCache: true,
-        message: `Grupos obtidos do cache local (cooldown de rate-limit da API SendFlow: ~${remainingMinutes} min restantes).`,
+        message: `Grupos obtidos do cache local para release ${cleanReleaseId} (~${remainingMinutes} min de cooldown da API SendFlow).`,
       };
     }
 
-    const url = `${config.sendflow.baseUrl}/releases/${releaseId}/groups`;
+    const url = `${config.sendflow.baseUrl}/releases/${cleanReleaseId}/groups`;
 
     try {
-      this.lastGetTimestamp = Date.now();
+      this.releaseFetchTimestamps.set(cleanReleaseId, Date.now());
       const response = await fetch(url, {
         method: 'GET',
         headers: this.getHeaders(),
@@ -115,20 +148,18 @@ export class SendFlowClient {
           retryAfterMs = errJson.retryAfterMs;
         } catch {}
 
-        const remainingText = retryAfterMs 
+        const remainingText = retryAfterMs
           ? `${Math.ceil(retryAfterMs / 60000)} min (${Math.round(retryAfterMs / 1000)}s)`
           : 'alguns minutos';
 
-        // Tenta carregar do cache em memória ou do disco
-        const groups = this.getCachedGroups();
-        if (groups.length > 0) {
+        if (cached.length > 0) {
           return {
-            groups,
+            groups: cached,
             fromCache: true,
-            message: `SendFlow em cooldown de rate-limit (10min). Próxima consulta liberada em ~${remainingText}. Usando ${groups.length} grupos em cache.`,
+            message: `SendFlow em cooldown de 10 min. Próxima consulta em ~${remainingText}. Usando ${cached.length} grupos em cache.`,
           };
         }
-        throw new Error(`SendFlow 403 (Rate limit de 10 min por campanha). Aguarde ~${remainingText} para nova consulta: ${text}`);
+        throw new Error(`SendFlow 403 (Rate limit de 10 min por campanha). Aguarde ~${remainingText}: ${text}`);
       }
 
       if (response.status === 401) {
@@ -136,17 +167,16 @@ export class SendFlowClient {
       }
 
       if (response.status === 404) {
-        throw new Error(`SendFlow 404 - Campanha não encontrada (releaseId: ${releaseId}).`);
+        throw new Error(`SendFlow 404 - Campanha não encontrada (releaseId: ${cleanReleaseId}).`);
       }
 
       if (!response.ok) {
         const text = await response.text();
-        throw new Error(`SendFlow HTTP ${response.status} ao buscar grupos: ${text}`);
+        throw new Error(`SendFlow HTTP ${response.status} ao buscar grupos da campanha ${cleanReleaseId}: ${text}`);
       }
 
       const rawData = await response.json();
 
-      // Normaliza array caso a API retorne aninhado [[{...}]] ou plano [{...}]
       let flatGroups = [];
       if (Array.isArray(rawData)) {
         flatGroups = Array.isArray(rawData[0]) ? rawData.flat() : rawData;
@@ -154,56 +184,42 @@ export class SendFlowClient {
         flatGroups = rawData.groups;
       }
 
-      this.cachedGroups = flatGroups;
-      this.lastSuccessfulFetchTime = new Date();
-      this.saveCacheToDisk(flatGroups);
+      this.cachedGroupsByRelease.set(cleanReleaseId, flatGroups);
+      this.saveCacheStoreToDisk();
 
       return {
         groups: flatGroups,
         fromCache: false,
-        message: `${flatGroups.length} grupos obtidos com sucesso do SendFlow.`,
+        message: `${flatGroups.length} grupos obtidos com sucesso do SendFlow (Release: ${cleanReleaseId}).`,
       };
     } catch (error) {
-      const groups = this.getCachedGroups();
-      if (groups.length > 0) {
+      if (cached.length > 0) {
         return {
-          groups,
+          groups: cached,
           fromCache: true,
-          message: `Aviso SendFlow (${error.message}). Utilizando ${groups.length} grupos em cache.`,
+          message: `Aviso SendFlow (${error.message}). Utilizando ${cached.length} grupos em cache para a campanha.`,
         };
       }
       throw error;
     }
   }
 
-  getCachedGroups() {
-    if (this.cachedGroups.length > 0) return this.cachedGroups;
-    try {
-      if (fs.existsSync(CACHE_FILE)) {
-        const content = fs.readFileSync(CACHE_FILE, 'utf-8');
-        const parsed = JSON.parse(content);
-        if (Array.isArray(parsed) && parsed.length > 0) {
-          this.cachedGroups = parsed;
-          return parsed;
-        }
-      }
-    } catch {}
-    return [];
-  }
-
-  saveCacheToDisk(groups) {
-    try {
-      fs.writeFileSync(CACHE_FILE, JSON.stringify(groups, null, 2), 'utf-8');
-    } catch {}
+  /**
+   * Obtém grupos em cache de uma campanha
+   * @param {string} releaseId 
+   */
+  getCachedGroups(releaseId) {
+    if (!releaseId) return [];
+    return this.cachedGroupsByRelease.get(releaseId) || [];
   }
 
   /**
-   * Dispara a ação de atualizar link de convite para os grupos selecionados
-   * @param {string|string[]} groupIds - ID ou lista de IDs dos grupos
-   * @param {string} [releaseId]
-   * @returns {Promise<{message: string, id?: string, actionId?: string}>}
+   * Dispara a ação de atualizar link de convite para os grupos selecionados com trava de segurança global
+   * @param {string|string[]} groupIds
+   * @param {string} releaseId
+   * @param {object} [options]
    */
-  async updateGroupInviteCode(groupIds, releaseId = config.sendflow.releaseId) {
+  async updateGroupInviteCode(groupIds, releaseId = config.sendflow.releaseId, options = {}) {
     if (!releaseId) {
       throw new Error('SendFlow releaseId não informado.');
     }
@@ -213,7 +229,7 @@ export class SendFlowClient {
       throw new Error('Nenhum grupo informado para atualizar link.');
     }
 
-    // TRAVA DE SEGURANÇA: Máximo de 4 alterações a cada 15 minutos
+    // TRAVA DE SEGURANÇA GLOBAL: Máximo de 4 alterações a cada 15 minutos em toda a conta
     const safety = this.getUpdateCooldownStatus();
     if (!safety.canUpdate) {
       const err = new Error(
@@ -225,17 +241,20 @@ export class SendFlowClient {
       throw err;
     }
 
+    const accountsFrom = options.accountsFrom || config.sendflow.accountsFrom || 'release';
+    const accounts = options.accounts || config.sendflow.accounts || [];
+
     const payload = {
-      releaseId,
-      accountsFrom: config.sendflow.accountsFrom,
+      releaseId: releaseId.trim(),
+      accountsFrom,
       to: {
         type: 'groups',
         ids: ids.map(id => String(id)),
       },
     };
 
-    if (config.sendflow.accountsFrom === 'accounts') {
-      payload.accounts = config.sendflow.accounts;
+    if (accountsFrom === 'accounts' && accounts.length > 0) {
+      payload.accounts = accounts;
     }
 
     const url = `${config.sendflow.baseUrl}/actions/update-group-invite-code`;
@@ -255,11 +274,10 @@ export class SendFlowClient {
     }
 
     if (response.status === 201) {
-      // Registra a ação executada com sucesso
       this.actionTimestamps.push(Date.now());
       this.saveActionTimestamps();
 
-      const quotaMsg = `[Uso seguro: ${this.actionTimestamps.length}/4 ações na janela de 15 min]`;
+      const quotaMsg = `[Uso seguro: ${this.actionTimestamps.length}/4 ações nos últimos 15 min]`;
       return {
         success: true,
         message: `${data.message || 'Ação criada com sucesso no SendFlow'} ${quotaMsg}`,

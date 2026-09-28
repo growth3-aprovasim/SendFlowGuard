@@ -2,52 +2,33 @@ import { config } from '../config.js';
 import { MasterLinkChecker } from './masterLinkChecker.js';
 import { verifierService } from './verifier.js';
 import { Notifier } from './notifier.js';
+import { campaignManager } from './campaignManager.js';
 
 export class MasterLinkMonitor {
   constructor() {
     this.timerId = null;
     this.isActive = false;
     this.isChecking = false;
-    this.lastResult = null;
-    this.nextCheckTime = null;
-    this.history = [];
-    this.consecutiveFailures = 0;
-  }
-
-  get url() {
-    return config.masterLink.url;
-  }
-
-  get intervalSeconds() {
-    return config.masterLink.intervalSeconds;
-  }
-
-  get isEnabled() {
-    return Boolean(this.url);
+    // Map campaignId -> status data
+    this.campaignStatus = new Map();
   }
 
   start() {
-    if (!this.isEnabled) {
-      verifierService.addLog('info', 'Link Mãe não configurado no .env (MASTER_LINK_URL em branco). Monitoramento do Link Mãe inativo.');
-      return;
-    }
-
     if (this.isActive) return;
-
     this.isActive = true;
-    verifierService.addLog(
-      'info',
-      `👑 Monitor do Link Mãe ATIVADO. Verificando a cada ${this.intervalSeconds}s (${this.url})`
-    );
 
-    // Executa a primeira checagem após 2s
+    verifierService.addLog('info', `👑 Monitor de Links Mãe ATIVADO para todas as campanhas cadastradas.`);
+
+    // Primeira checagem após 2s
     setTimeout(() => {
-      if (this.isActive) this.checkNow();
+      if (this.isActive) this.checkAll();
     }, 2000);
 
+    // Loop global de checagem a cada 60s (ou o menor intervalo configurado)
+    const intervalSeconds = Math.max(10, config.masterLink.intervalSeconds || 60);
     this.timerId = setInterval(() => {
-      this.checkNow();
-    }, this.intervalSeconds * 1000);
+      this.checkAll();
+    }, intervalSeconds * 1000);
   }
 
   stop() {
@@ -56,56 +37,99 @@ export class MasterLinkMonitor {
       this.timerId = null;
     }
     this.isActive = false;
-    this.nextCheckTime = null;
   }
 
-  async checkNow() {
-    if (!this.isEnabled) {
-      return { isOnline: false, message: 'MASTER_LINK_URL não definido.' };
+  getCampaignState(campaignId) {
+    if (!this.campaignStatus.has(campaignId)) {
+      this.campaignStatus.set(campaignId, {
+        campaignId,
+        lastResult: null,
+        nextCheckTime: null,
+        history: [],
+        consecutiveFailures: 0,
+      });
     }
+    return this.campaignStatus.get(campaignId);
+  }
 
-    if (this.isChecking) return this.lastResult;
+  /**
+   * Checa os links mãe de todas as campanhas ativas
+   */
+  async checkAll() {
+    if (this.isChecking) return;
     this.isChecking = true;
 
-    this.nextCheckTime = new Date(Date.now() + this.intervalSeconds * 1000).toISOString();
+    try {
+      const activeCampaigns = campaignManager.getActiveCampaigns().filter(c => Boolean((c.masterLinkUrl || '').trim()));
+
+      if (activeCampaigns.length === 0) {
+        return;
+      }
+
+      for (const campaign of activeCampaigns) {
+        await this.checkCampaign(campaign);
+        // Pequena pausa entre checagens de campanhas diferentes
+        await new Promise(r => setTimeout(r, 600));
+      }
+    } catch (err) {
+      verifierService.addLog('error', `Erro no ciclo de monitoramento de Links Mãe: ${err.message}`);
+    } finally {
+      this.isChecking = false;
+    }
+  }
+
+  /**
+   * Checa o Link Mãe de uma campanha específica
+   * @param {object} campaign 
+   */
+  async checkCampaign(campaign) {
+    if (!campaign || !campaign.masterLinkUrl) {
+      return { isOnline: false, message: 'Nenhum Link Mãe configurado nesta campanha.' };
+    }
+
+    const state = this.getCampaignState(campaign.id);
+    const intervalSec = campaign.masterLinkIntervalSeconds || config.masterLink.intervalSeconds || 60;
+    state.nextCheckTime = new Date(Date.now() + intervalSec * 1000).toISOString();
 
     try {
-      const result = await MasterLinkChecker.check(this.url);
-      const previousResult = this.lastResult;
-      this.lastResult = result;
+      const result = await MasterLinkChecker.check(campaign.masterLinkUrl);
+      result.campaignId = campaign.id;
+      result.campaignName = campaign.name;
 
-      // Adiciona ao histórico (máx 30)
-      this.history.unshift(result);
-      if (this.history.length > 30) this.history.pop();
+      state.lastResult = result;
+      state.history.unshift(result);
+      if (state.history.length > 30) state.history.pop();
 
-      // Log e Alertas
+      // Log e Alertas com identificação da campanha
       if (result.status === 'OPERATIONAL') {
-        if (this.consecutiveFailures > 0) {
-          // Recuperou de uma queda!
-          verifierService.addLog('success', `🟢 [LINK MÃE RECUPERADO] ${result.message}`);
+        if (state.consecutiveFailures > 0) {
+          verifierService.addLog('success', `🟢 [LINK MÃE RECUPERADO - ${campaign.name}] ${result.message}`);
           Notifier.notify({
             type: 'MASTER_LINK_RECOVERED',
-            url: this.url,
+            campaign,
+            url: campaign.masterLinkUrl,
             finalUrl: result.finalUrl,
           }).catch(() => {});
         }
-        this.consecutiveFailures = 0;
+        state.consecutiveFailures = 0;
       } else if (result.status === 'DESTINATION_REVOKED') {
-        this.consecutiveFailures++;
-        verifierService.addLog('error', `🚨 [LINK MÃE COM PROBLEMA] ${result.message}`);
+        state.consecutiveFailures++;
+        verifierService.addLog('error', `🚨 [LINK MÃE COM PROBLEMA - ${campaign.name}] ${result.message}`);
         Notifier.notify({
           type: 'MASTER_LINK_DESTINATION_REVOKED',
-          url: this.url,
+          campaign,
+          url: campaign.masterLinkUrl,
           finalUrl: result.finalUrl,
         }).catch(() => {});
       } else {
         // OFFLINE
-        this.consecutiveFailures++;
-        verifierService.addLog('error', `💥 [LINK MÃE FORA DO AR] ${result.message}`);
-        if (this.consecutiveFailures === 1 || this.consecutiveFailures % 5 === 0) {
+        state.consecutiveFailures++;
+        verifierService.addLog('error', `💥 [LINK MÃE FORA DO AR - ${campaign.name}] ${result.message}`);
+        if (state.consecutiveFailures === 1 || state.consecutiveFailures % 5 === 0) {
           Notifier.notify({
             type: 'MASTER_LINK_DOWN',
-            url: this.url,
+            campaign,
+            url: campaign.masterLinkUrl,
             error: result.message,
           }).catch(() => {});
         }
@@ -113,21 +137,61 @@ export class MasterLinkMonitor {
 
       return result;
     } catch (err) {
-      verifierService.addLog('error', `Erro na verificação do Link Mãe: ${err.message}`);
-    } finally {
-      this.isChecking = false;
+      verifierService.addLog('error', `Erro ao checar Link Mãe de "${campaign.name}": ${err.message}`);
     }
   }
 
-  getStatus() {
+  /**
+   * Força a checagem imediata para uma campanha ou a primeira disponível
+   */
+  async checkNow(campaignId = null) {
+    if (campaignId) {
+      const campaign = campaignManager.getById(campaignId);
+      if (!campaign) throw new Error(`Campanha ${campaignId} não encontrada.`);
+      return await this.checkCampaign(campaign);
+    }
+
+    await this.checkAll();
+    // Retorna status consolidado
+    return this.getStatus();
+  }
+
+  getStatus(campaignId = null) {
+    if (campaignId) {
+      const camp = campaignManager.getById(campaignId);
+      const state = this.getCampaignState(campaignId);
+      return {
+        campaignId,
+        campaignName: camp?.name || 'Campanha',
+        isEnabled: Boolean(camp?.masterLinkUrl),
+        url: camp?.masterLinkUrl || '',
+        intervalSeconds: camp?.masterLinkIntervalSeconds || 60,
+        nextCheckTime: state.nextCheckTime,
+        lastResult: state.lastResult,
+        history: state.history.slice(0, 10),
+      };
+    }
+
+    // Retorna todos
+    const allCampaigns = campaignManager.getAll();
+    const resultByCampaign = {};
+    for (const c of allCampaigns) {
+      const st = this.getCampaignState(c.id);
+      resultByCampaign[c.id] = {
+        campaignId: c.id,
+        campaignName: c.name,
+        isEnabled: Boolean(c.masterLinkUrl),
+        url: c.masterLinkUrl || '',
+        intervalSeconds: c.masterLinkIntervalSeconds || 60,
+        nextCheckTime: st.nextCheckTime,
+        lastResult: st.lastResult,
+        history: st.history.slice(0, 10),
+      };
+    }
+
     return {
-      isEnabled: this.isEnabled,
       isActive: this.isActive,
-      url: this.url,
-      intervalSeconds: this.intervalSeconds,
-      nextCheckTime: this.nextCheckTime,
-      lastResult: this.lastResult,
-      history: this.history.slice(0, 10),
+      campaigns: resultByCampaign,
     };
   }
 }

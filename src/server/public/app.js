@@ -1,18 +1,25 @@
-// Frontend JavaScript para o Dashboard do SendFlow Guard
+// Frontend JavaScript para o Dashboard Multi-Campanhas SendFlow Guard
 
 let state = {
   isRunning: false,
   nextCheckTime: null,
   schedulerActive: true,
+  selectedCampaignId: 'all',
+  campaigns: [],
   groups: [],
   logs: [],
+  masterLink: null,
+  cooldown: null,
+  stats: {},
   filterQuery: '',
 };
 
 let countdownInterval = null;
 
 // Elementos DOM
-const campaignIdText = document.getElementById('campaignIdText');
+const apiQuotaBadge = document.getElementById('apiQuotaBadge');
+const apiQuotaText = document.getElementById('apiQuotaText');
+const activeCampaignsCountText = document.getElementById('activeCampaignsCountText');
 const toggleSchedulerBtn = document.getElementById('toggleSchedulerBtn');
 const schedulerText = document.getElementById('schedulerText');
 const schedulerIcon = document.getElementById('schedulerIcon');
@@ -26,6 +33,10 @@ const intervalText = document.getElementById('intervalText');
 const lastCheckText = document.getElementById('lastCheckText');
 const countdownText = document.getElementById('countdownText');
 
+const campaignTabsContainer = document.getElementById('campaignTabsContainer');
+const campaignsCardsGrid = document.getElementById('campaignsCardsGrid');
+const allCountBadge = document.getElementById('allCountBadge');
+
 const metricTotal = document.getElementById('metricTotal');
 const metricValid = document.getElementById('metricValid');
 const metricRevoked = document.getElementById('metricRevoked');
@@ -35,6 +46,11 @@ const filterInput = document.getElementById('filterInput');
 const groupsTableBody = document.getElementById('groupsTableBody');
 const groupsCountBadge = document.getElementById('groupsCountBadge');
 
+const safetyCountText = document.getElementById('safetyCountText');
+const safetyBarFill = document.getElementById('safetyBarFill');
+const safetyCooldownAlert = document.getElementById('safetyCooldownAlert');
+const safetyCooldownTime = document.getElementById('safetyCooldownTime');
+
 const quickTestInput = document.getElementById('quickTestInput');
 const quickTestBtn = document.getElementById('quickTestBtn');
 const quickTestResult = document.getElementById('quickTestResult');
@@ -43,7 +59,7 @@ const logsTerminal = document.getElementById('logsTerminal');
 const clearLogsBtn = document.getElementById('clearLogsBtn');
 
 // Elementos do Link Mãe
-const masterLinkCard = document.getElementById('masterLinkCard');
+const masterLinkSectionTitle = document.getElementById('masterLinkSectionTitle');
 const masterLinkStatusBadge = document.getElementById('masterLinkStatusBadge');
 const testMasterLinkBtn = document.getElementById('testMasterLinkBtn');
 const masterLinkUrlText = document.getElementById('masterLinkUrlText');
@@ -52,6 +68,23 @@ const masterDestinationBox = document.getElementById('masterDestinationBox');
 const masterLatencyText = document.getElementById('masterLatencyText');
 const masterIntervalText = document.getElementById('masterIntervalText');
 const masterLinkMsg = document.getElementById('masterLinkMsg');
+
+// Modal de Campanha
+const addCampaignBtn = document.getElementById('addCampaignBtn');
+const campaignModal = document.getElementById('campaignModal');
+const closeModalBtn = document.getElementById('closeModalBtn');
+const cancelModalBtn = document.getElementById('cancelModalBtn');
+const campaignForm = document.getElementById('campaignForm');
+const modalTitle = document.getElementById('modalTitle');
+const formCampaignId = document.getElementById('formCampaignId');
+const formName = document.getElementById('formName');
+const formReleaseId = document.getElementById('formReleaseId');
+const formMasterLink = document.getElementById('formMasterLink');
+const formAccountsFrom = document.getElementById('formAccountsFrom');
+const formMasterInterval = document.getElementById('formMasterInterval');
+const accountsIdsGroup = document.getElementById('accountsIdsGroup');
+const formAccountsIds = document.getElementById('formAccountsIds');
+const formEnabled = document.getElementById('formEnabled');
 
 // Inicialização
 document.addEventListener('DOMContentLoaded', () => {
@@ -62,12 +95,16 @@ document.addEventListener('DOMContentLoaded', () => {
 });
 
 function setupEventListeners() {
-  // Botão Verificar Agora
+  // Disparar Verificação Global Agora
   verifyNowBtn.addEventListener('click', async () => {
     try {
       verifyNowBtn.disabled = true;
       verifyBtnLabel.textContent = 'Iniciando...';
-      const res = await fetch('/api/verify-now', {
+      const endpoint = state.selectedCampaignId === 'all'
+        ? '/api/verify-now'
+        : `/api/campaigns/${state.selectedCampaignId}/verify-now`;
+
+      const res = await fetch(endpoint, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ forceRefresh: true }),
@@ -96,13 +133,13 @@ function setupEventListeners() {
     }
   });
 
-  // Filtro de grupos
+  // Filtro de grupos na tabela
   filterInput.addEventListener('input', (e) => {
     state.filterQuery = e.target.value.toLowerCase().trim();
     renderGroupsTable();
   });
 
-  // Testador rápido
+  // Testador Rápido
   quickTestBtn.addEventListener('click', handleQuickTest);
   quickTestInput.addEventListener('keypress', (e) => {
     if (e.key === 'Enter') handleQuickTest();
@@ -118,8 +155,11 @@ function setupEventListeners() {
     try {
       testMasterLinkBtn.disabled = true;
       testMasterLinkBtn.textContent = 'Verificando...';
-      const res = await fetch('/api/master-link/check-now', { method: 'POST' });
-      const json = await res.json();
+      const endpoint = state.selectedCampaignId === 'all'
+        ? '/api/master-link/check-now'
+        : `/api/campaigns/${state.selectedCampaignId}/master-link/check-now`;
+
+      await fetch(endpoint, { method: 'POST' });
       testMasterLinkBtn.disabled = false;
       testMasterLinkBtn.textContent = '⚡ Testar Link Mãe';
       fetchStatus();
@@ -132,16 +172,38 @@ function setupEventListeners() {
 
   // Copiar Link Mãe
   copyMasterLinkBtn.addEventListener('click', () => {
-    if (state.masterLink?.url) {
-      copyLink(state.masterLink.url);
+    const url = masterLinkUrlText.textContent;
+    if (url && url.startsWith('http')) {
+      copyLink(url);
     }
   });
+
+  // Modal: Abrir para nova campanha
+  addCampaignBtn.addEventListener('click', () => {
+    openCampaignModal();
+  });
+
+  // Modal: Fechar
+  closeModalBtn.addEventListener('click', closeCampaignModal);
+  cancelModalBtn.addEventListener('click', closeCampaignModal);
+  campaignModal.addEventListener('click', (e) => {
+    if (e.target === campaignModal) closeCampaignModal();
+  });
+
+  // Alternar campo de IDs de contas no formulário
+  formAccountsFrom.addEventListener('change', () => {
+    accountsIdsGroup.style.display = formAccountsFrom.value === 'accounts' ? 'block' : 'none';
+  });
+
+  // Submeter formulário de campanha
+  campaignForm.addEventListener('submit', handleSaveCampaign);
 }
 
 // Busca status da API
 async function fetchStatus() {
   try {
-    const res = await fetch('/api/status');
+    const query = state.selectedCampaignId !== 'all' ? `?campaignId=${state.selectedCampaignId}` : '';
+    const res = await fetch(`/api/status${query}`);
     const json = await res.json();
     if (!json.success) return;
 
@@ -149,10 +211,14 @@ async function fetchStatus() {
     state.isRunning = data.isRunning;
     state.nextCheckTime = data.nextCheckTime;
     state.schedulerActive = data.scheduler?.isActive ?? true;
+    state.campaigns = data.campaigns || [];
     state.groups = data.groups || [];
     state.logs = data.logs || [];
+    state.masterLink = data.masterLink;
+    state.cooldown = data.cooldown;
+    state.stats = data.stats || {};
 
-    // Alerta de configuração
+    // Alerta de API KEY
     if (data.configCheck && !data.configCheck.isValid) {
       configAlert.style.display = 'flex';
       configAlert.querySelector('.alert-desc').textContent = data.configCheck.errors.join(' | ');
@@ -160,9 +226,10 @@ async function fetchStatus() {
       configAlert.style.display = 'none';
     }
 
-    // Config info
-    campaignIdText.textContent = data.config?.releaseId || 'Não definida';
-    intervalText.textContent = `${data.config?.intervalMinutes || 10} min`;
+    // Indicadores superiores
+    const activeCount = state.campaigns.filter(c => c.enabled !== false).length;
+    activeCampaignsCountText.textContent = `${activeCount} de ${state.campaigns.length}`;
+    intervalText.textContent = `${data.scheduler?.intervalMinutes || 10} min`;
 
     // Atualiza botão e status de execução
     if (state.isRunning) {
@@ -173,7 +240,7 @@ async function fetchStatus() {
       systemStateText.textContent = 'Verificação em Andamento';
     } else {
       verifyNowBtn.disabled = false;
-      verifyBtnLabel.textContent = 'Verificar Agora';
+      verifyBtnLabel.textContent = state.selectedCampaignId === 'all' ? 'Verificar Tudo Agora' : 'Verificar Esta Campanha';
       if (state.schedulerActive) {
         systemStateDot.className = 'dot';
         systemStateDot.style.backgroundColor = '#10b981';
@@ -200,15 +267,18 @@ async function fetchStatus() {
     }
 
     // Métricas
-    const stats = data.stats || {};
-    metricTotal.textContent = state.groups.length || stats.totalGroups || 0;
-    metricValid.textContent = stats.validCount || 0;
-    metricRevoked.textContent = stats.revokedCount || 0;
-    metricRecovered.textContent = stats.recoveredCount || 0;
+    metricTotal.textContent = state.stats.totalGroups || state.groups.length || 0;
+    metricValid.textContent = state.stats.validCount || 0;
+    metricRevoked.textContent = state.stats.revokedCount || 0;
+    metricRecovered.textContent = state.stats.recoveredCount || 0;
 
     groupsCountBadge.textContent = `${state.groups.length} grupos`;
+    allCountBadge.textContent = state.campaigns.length;
 
-    state.masterLink = data.masterLink;
+    // Renderizações
+    renderCampaignTabs();
+    renderCampaignsCards();
+    renderSafetyMeter(data.cooldown);
     renderMasterLink(data.masterLink);
     renderGroupsTable();
     renderLogs(state.logs);
@@ -217,16 +287,159 @@ async function fetchStatus() {
   }
 }
 
+// Renderiza a barra de segurança da API
+function renderSafetyMeter(cooldown) {
+  if (!cooldown) return;
+
+  const count = cooldown.count || 0;
+  const max = cooldown.maxAllowed || 4;
+  const remaining = cooldown.remainingCount ?? (max - count);
+
+  apiQuotaText.textContent = `${remaining}/${max} disponíveis`;
+  safetyCountText.textContent = `${count} / ${max}`;
+
+  const pct = Math.min(100, (count / max) * 100);
+  safetyBarFill.style.width = `${pct}%`;
+
+  if (count >= 3) {
+    safetyBarFill.className = 'safety-fill danger';
+  } else {
+    safetyBarFill.className = 'safety-fill';
+  }
+
+  if (cooldown.waitMs > 0 && !cooldown.canUpdate) {
+    safetyCooldownAlert.style.display = 'block';
+    safetyCooldownTime.textContent = cooldown.cooldownText;
+  } else {
+    safetyCooldownAlert.style.display = 'none';
+  }
+}
+
+// Renderiza as abas de seleção de campanha
+function renderCampaignTabs() {
+  const tabs = [
+    `<button class="tab-btn ${state.selectedCampaignId === 'all' ? 'active' : ''}" data-campaign-id="all">
+      🌐 Todas as Campanhas (${state.campaigns.length})
+    </button>`
+  ];
+
+  state.campaigns.forEach(camp => {
+    const isSel = state.selectedCampaignId === camp.id;
+    const isPaused = camp.enabled === false;
+    tabs.push(`
+      <button class="tab-btn ${isSel ? 'active' : ''} ${isPaused ? 'opacity-70' : ''}" data-campaign-id="${camp.id}">
+        ${isPaused ? '⏸️' : '🎯'} ${escapeHtml(camp.name)}
+      </button>
+    `);
+  });
+
+  campaignTabsContainer.innerHTML = tabs.join('');
+
+  campaignTabsContainer.querySelectorAll('.tab-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      state.selectedCampaignId = btn.getAttribute('data-campaign-id');
+      fetchStatus();
+    });
+  });
+}
+
+// Renderiza os cards das campanhas
+function renderCampaignsCards() {
+  if (state.campaigns.length === 0) {
+    campaignsCardsGrid.innerHTML = `
+      <div class="card p-6 text-center text-muted" style="grid-column: 1 / -1; padding: 24px;">
+        Nenhuma campanha cadastrada ainda. Clique no botão <b>"+ Nova Campanha"</b> acima para adicionar sua primeira campanha do SendFlow.
+      </div>
+    `;
+    return;
+  }
+
+  campaignsCardsGrid.innerHTML = state.campaigns.map(camp => {
+    const isSelected = state.selectedCampaignId === camp.id;
+    const isEnabled = camp.enabled !== false;
+    const masterLinkStatus = state.masterLink?.campaigns?.[camp.id];
+    const isOperational = masterLinkStatus?.lastResult?.status === 'OPERATIONAL';
+
+    return `
+      <div class="campaign-card ${isSelected ? 'selected' : ''}" data-id="${camp.id}">
+        <div class="camp-card-header">
+          <div>
+            <div class="camp-card-title">${escapeHtml(camp.name)}</div>
+            <div class="camp-card-release mono">Release ID: ${escapeHtml(camp.releaseId)}</div>
+          </div>
+          <span class="camp-badge-status ${isEnabled ? 'active' : 'paused'}">
+            ${isEnabled ? '● Ativa' : '⏸ Pausada'}
+          </span>
+        </div>
+
+        <div class="camp-card-body">
+          <div class="camp-info-row">
+            <span class="text-muted text-sm">Link Mãe:</span>
+            <span class="mono text-sm ${camp.masterLinkUrl ? (isOperational ? 'text-success' : 'text-info') : 'text-muted'}">
+              ${camp.masterLinkUrl ? (isOperational ? '🟢 Operacional' : 'Configurado') : 'Não definido'}
+            </span>
+          </div>
+          <div class="camp-info-row">
+            <span class="text-muted text-sm">Origem Contas:</span>
+            <span class="mono text-sm">${escapeHtml(camp.accountsFrom || 'release')}</span>
+          </div>
+        </div>
+
+        <div class="camp-card-actions">
+          <button class="btn btn-secondary btn-sm" onclick="selectCampaign('${camp.id}')" title="Filtrar visão nesta campanha">
+            🔍 Filtrar
+          </button>
+          <button class="btn btn-secondary btn-sm" onclick="editCampaign('${camp.id}')" title="Editar configurações da campanha">
+            ✏️ Editar
+          </button>
+          <button class="btn btn-secondary btn-sm" onclick="toggleCampaign('${camp.id}')" title="${isEnabled ? 'Pausar' : 'Ativar'} monitoramento">
+            ${isEnabled ? '⏸️ Pausar' : '▶️ Ativar'}
+          </button>
+          <button class="btn btn-danger-outline btn-sm" onclick="deleteCampaign('${camp.id}', '${escapeHtml(camp.name)}')" title="Excluir campanha">
+            🗑️
+          </button>
+        </div>
+      </div>
+    `;
+  }).join('');
+}
+
 // Renderiza o card do Link Mãe
 function renderMasterLink(masterData) {
-  if (!masterData || !masterData.isEnabled) {
+  let targetUrl = '';
+  let lastResult = null;
+  let intervalSec = 60;
+  let title = 'Link Mãe (Redirecionador Principal)';
+
+  if (state.selectedCampaignId !== 'all') {
+    const selectedCamp = state.campaigns.find(c => c.id === state.selectedCampaignId);
+    if (selectedCamp) {
+      title = `Link Mãe • ${selectedCamp.name}`;
+      targetUrl = selectedCamp.masterLinkUrl;
+      intervalSec = selectedCamp.masterLinkIntervalSeconds || 60;
+      lastResult = masterData?.lastResult || masterData?.campaigns?.[selectedCamp.id]?.lastResult;
+    }
+  } else {
+    // Se for 'all', pega a primeira campanha que tiver link mãe configurado
+    const firstWithLink = state.campaigns.find(c => Boolean(c.masterLinkUrl));
+    if (firstWithLink) {
+      title = `Link Mãe • ${firstWithLink.name} (Geral)`;
+      targetUrl = firstWithLink.masterLinkUrl;
+      intervalSec = firstWithLink.masterLinkIntervalSeconds || 60;
+      lastResult = masterData?.campaigns?.[firstWithLink.id]?.lastResult;
+    }
+  }
+
+  masterLinkSectionTitle.textContent = title;
+
+  if (!targetUrl) {
     masterLinkStatusBadge.className = 'master-badge badge-unconfigured';
     masterLinkStatusBadge.textContent = '● Não Configurado';
-    masterLinkUrlText.textContent = 'Defina MASTER_LINK_URL no arquivo .env';
+    masterLinkUrlText.textContent = 'Cadastre uma campanha com Link Mãe para monitorar';
     masterLinkUrlText.className = 'mono text-muted text-truncate';
     copyMasterLinkBtn.style.display = 'none';
     testMasterLinkBtn.disabled = true;
-    masterDestinationBox.innerHTML = '<span class="text-muted text-sm mono">Aguardando configuração no .env</span>';
+    masterDestinationBox.innerHTML = '<span class="text-muted text-sm mono">Aguardando configuração de campanha</span>';
     masterLatencyText.textContent = '-- ms';
     masterIntervalText.textContent = '--';
     masterLinkMsg.style.display = 'none';
@@ -234,51 +447,45 @@ function renderMasterLink(masterData) {
   }
 
   testMasterLinkBtn.disabled = false;
-  masterIntervalText.textContent = `A cada ${masterData.intervalSeconds || 60}s`;
+  masterIntervalText.textContent = `A cada ${intervalSec}s`;
 
-  // URL e botão copiar
-  masterLinkUrlText.textContent = masterData.url;
+  masterLinkUrlText.textContent = targetUrl;
   masterLinkUrlText.className = 'mono text-truncate text-info font-bold';
   copyMasterLinkBtn.style.display = 'inline-block';
 
-  const res = masterData.lastResult;
-  if (!res) {
+  if (!lastResult) {
     masterLinkStatusBadge.className = 'master-badge badge-unconfigured';
     masterLinkStatusBadge.textContent = '⏳ Verificando...';
-    masterDestinationBox.innerHTML = '<span class="text-muted text-sm mono">Iniciando primeira checagem...</span>';
+    masterDestinationBox.innerHTML = '<span class="text-muted text-sm mono">Iniciando checagem...</span>';
     masterLatencyText.textContent = '-- ms';
     masterLinkMsg.style.display = 'none';
     return;
   }
 
-  // Latência
-  masterLatencyText.textContent = `${res.durationMs ?? 0} ms`;
+  masterLatencyText.textContent = `${lastResult.durationMs ?? 0} ms`;
 
-  // Status Badge & Mensagem
-  if (res.status === 'OPERATIONAL') {
+  if (lastResult.status === 'OPERATIONAL') {
     masterLinkStatusBadge.className = 'master-badge badge-operational';
     masterLinkStatusBadge.textContent = '🟢 Operacional (100% OK)';
     masterLinkMsg.style.display = 'block';
     masterLinkMsg.className = 'master-alert alert-success';
-    masterLinkMsg.textContent = res.message;
-  } else if (res.status === 'DESTINATION_REVOKED') {
+    masterLinkMsg.textContent = lastResult.message;
+  } else if (lastResult.status === 'DESTINATION_REVOKED') {
     masterLinkStatusBadge.className = 'master-badge badge-warning';
     masterLinkStatusBadge.textContent = '⚠️ Destino Revogado!';
     masterLinkMsg.style.display = 'block';
     masterLinkMsg.className = 'master-alert alert-danger';
-    masterLinkMsg.textContent = res.message;
+    masterLinkMsg.textContent = lastResult.message;
   } else {
-    // OFFLINE
     masterLinkStatusBadge.className = 'master-badge badge-offline';
     masterLinkStatusBadge.textContent = '🔴 Fora do Ar!';
     masterLinkMsg.style.display = 'block';
     masterLinkMsg.className = 'master-alert alert-danger';
-    masterLinkMsg.textContent = res.message;
+    masterLinkMsg.textContent = lastResult.message;
   }
 
-  // Destino Atual (WhatsApp)
-  if (res.destinationGroup && res.destinationGroup.isWhatsApp) {
-    const dest = res.destinationGroup;
+  if (lastResult.destinationGroup && lastResult.destinationGroup.isWhatsApp) {
+    const dest = lastResult.destinationGroup;
     masterDestinationBox.innerHTML = `
       <a href="${dest.url}" target="_blank" rel="noopener noreferrer" class="link-pill mono">
         ${escapeHtml(dest.title || dest.inviteCode || 'WhatsApp')}
@@ -286,10 +493,10 @@ function renderMasterLink(masterData) {
       </a>
       <button class="copy-btn" onclick="copyLink('${dest.url}')" title="Copiar Link de Destino">📋</button>
     `;
-  } else if (res.finalUrl) {
+  } else if (lastResult.finalUrl) {
     masterDestinationBox.innerHTML = `
-      <a href="${res.finalUrl}" target="_blank" rel="noopener noreferrer" class="link-pill mono">
-        ${escapeHtml(res.finalUrl)}
+      <a href="${lastResult.finalUrl}" target="_blank" rel="noopener noreferrer" class="link-pill mono">
+        ${escapeHtml(lastResult.finalUrl)}
       </a>
     `;
   } else {
@@ -297,34 +504,14 @@ function renderMasterLink(masterData) {
   }
 }
 
-// Contador regressivo para próxima checagem
-function startCountdownLoop() {
-  if (countdownInterval) clearInterval(countdownInterval);
-  countdownInterval = setInterval(() => {
-    if (!state.nextCheckTime || !state.schedulerActive) {
-      countdownText.textContent = state.schedulerActive ? '--:--' : 'Pausado';
-      return;
-    }
-
-    const diffMs = new Date(state.nextCheckTime).getTime() - Date.now();
-    if (diffMs <= 0) {
-      countdownText.textContent = 'Executando...';
-      return;
-    }
-
-    const totalSeconds = Math.floor(diffMs / 1000);
-    const mins = Math.floor(totalSeconds / 60);
-    const secs = totalSeconds % 60;
-    countdownText.textContent = `${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}`;
-  }, 1000);
-}
-
 // Renderiza a tabela de grupos
 function renderGroupsTable() {
   let filtered = state.groups;
+
   if (state.filterQuery) {
     filtered = filtered.filter(g =>
       (g.name || '').toLowerCase().includes(state.filterQuery) ||
+      (g.campaignName || '').toLowerCase().includes(state.filterQuery) ||
       String(g.id || '').toLowerCase().includes(state.filterQuery) ||
       (g.inviteCode || '').toLowerCase().includes(state.filterQuery)
     );
@@ -333,8 +520,8 @@ function renderGroupsTable() {
   if (filtered.length === 0) {
     groupsTableBody.innerHTML = `
       <tr>
-        <td colspan="6" class="text-center py-6 text-muted">
-          ${state.groups.length === 0 ? 'Nenhum grupo verificado ainda. Clique em "Verificar Agora" para sincronizar.' : 'Nenhum grupo encontrado com este filtro.'}
+        <td colspan="7" class="text-center py-6 text-muted" style="padding: 24px;">
+          ${state.groups.length === 0 ? 'Nenhum grupo verificado ainda nesta visão. Clique em "Verificar Tudo Agora" para sincronizar.' : 'Nenhum grupo encontrado com este filtro de busca.'}
         </td>
       </tr>
     `;
@@ -345,7 +532,6 @@ function renderGroupsTable() {
     const inviteCode = g.inviteCode || '';
     const fullLink = inviteCode ? `https://chat.whatsapp.com/${inviteCode}` : '';
     
-    // Status Badge
     let statusBadge = '<span class="status-tag untested">Não Checado</span>';
     if (g.status === 'VALID') {
       statusBadge = '<span class="status-tag valid">● Ativo (OK)</span>';
@@ -353,8 +539,8 @@ function renderGroupsTable() {
       statusBadge = '<span class="status-tag revoked">⚠ Link Quebrado</span>';
     } else if (g.status === 'RECOVERED') {
       statusBadge = '<span class="status-tag valid">✔ Recuperado</span>';
-    } else if (g.status === 'RECOVERY_IN_PROGRESS') {
-      statusBadge = '<span class="status-tag recovering">↻ Atualizando...</span>';
+    } else if (g.status === 'QUEUED_RATE_LIMIT') {
+      statusBadge = '<span class="status-tag recovering">⏳ Fila Cooldown</span>';
     }
 
     const lastChecked = g.lastCheckedAt
@@ -363,6 +549,9 @@ function renderGroupsTable() {
 
     return `
       <tr data-group-id="${g.id}">
+        <td>
+          <span class="badge font-bold">${escapeHtml(g.campaignName || 'Campanha')}</span>
+        </td>
         <td>
           <div class="group-name">${escapeHtml(g.name || 'Sem nome')}</div>
           <div class="group-id mono">ID: ${escapeHtml(String(g.id))}</div>
@@ -389,7 +578,7 @@ function renderGroupsTable() {
                 🔍 Testar
               </button>
             ` : ''}
-            <button class="btn btn-secondary btn-sm" onclick="renewGroupLink('${g.id}', '${escapeHtml(g.name || '')}')" title="Disparar criação de novo link no SendFlow">
+            <button class="btn btn-secondary btn-sm" onclick="renewGroupLink('${g.id}', '${escapeHtml(g.name || '')}', '${g.campaignReleaseId || ''}')" title="Disparar criação de novo link no SendFlow">
               🔄 Novo Link
             </button>
           </div>
@@ -399,7 +588,7 @@ function renderGroupsTable() {
   }).join('');
 }
 
-// Renderiza o console de logs
+// Renderiza logs ao vivo
 function renderLogs(logs) {
   if (!logs || logs.length === 0) return;
   logsTerminal.innerHTML = logs.map(l => {
@@ -407,6 +596,138 @@ function renderLogs(logs) {
     return `<div class="log-entry ${levelClass}">[${l.timeFormatted || '--'}] ${escapeHtml(l.message)}</div>`;
   }).join('');
 }
+
+// Contador regressivo
+function startCountdownLoop() {
+  if (countdownInterval) clearInterval(countdownInterval);
+  countdownInterval = setInterval(() => {
+    if (!state.nextCheckTime || !state.schedulerActive) {
+      countdownText.textContent = state.schedulerActive ? '--:--' : 'Pausado';
+      return;
+    }
+
+    const diffMs = new Date(state.nextCheckTime).getTime() - Date.now();
+    if (diffMs <= 0) {
+      countdownText.textContent = 'Executando...';
+      return;
+    }
+
+    const totalSeconds = Math.floor(diffMs / 1000);
+    const mins = Math.floor(totalSeconds / 60);
+    const secs = totalSeconds % 60;
+    countdownText.textContent = `${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}`;
+  }, 1000);
+}
+
+// ==========================================
+// MODAL & AÇÕES DE CAMPANHAS
+// ==========================================
+
+function openCampaignModal(campaign = null) {
+  campaignForm.reset();
+  if (campaign) {
+    modalTitle.textContent = 'Editar Campanha';
+    formCampaignId.value = campaign.id;
+    formName.value = campaign.name || '';
+    formReleaseId.value = campaign.releaseId || '';
+    formMasterLink.value = campaign.masterLinkUrl || '';
+    formAccountsFrom.value = campaign.accountsFrom || 'release';
+    formMasterInterval.value = campaign.masterLinkIntervalSeconds || 60;
+    formAccountsIds.value = Array.isArray(campaign.accounts) ? campaign.accounts.join(', ') : '';
+    formEnabled.checked = campaign.enabled !== false;
+    accountsIdsGroup.style.display = campaign.accountsFrom === 'accounts' ? 'block' : 'none';
+  } else {
+    modalTitle.textContent = 'Nova Campanha';
+    formCampaignId.value = '';
+    formAccountsFrom.value = 'release';
+    formMasterInterval.value = '60';
+    formEnabled.checked = true;
+    accountsIdsGroup.style.display = 'none';
+  }
+  campaignModal.style.display = 'flex';
+}
+
+function closeCampaignModal() {
+  campaignModal.style.display = 'none';
+}
+
+async function handleSaveCampaign(e) {
+  e.preventDefault();
+  const id = formCampaignId.value;
+  const payload = {
+    name: formName.value.trim(),
+    releaseId: formReleaseId.value.trim(),
+    masterLinkUrl: formMasterLink.value.trim(),
+    accountsFrom: formAccountsFrom.value,
+    masterLinkIntervalSeconds: parseInt(formMasterInterval.value, 10),
+    accounts: formAccountsIds.value,
+    enabled: formEnabled.checked,
+  };
+
+  try {
+    const url = id ? `/api/campaigns/${id}` : '/api/campaigns';
+    const method = id ? 'PUT' : 'POST';
+
+    const res = await fetch(url, {
+      method,
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+
+    const data = await res.json();
+    if (!data.success) {
+      alert(data.error || 'Erro ao salvar campanha.');
+      return;
+    }
+
+    closeCampaignModal();
+    fetchStatus();
+  } catch (err) {
+    alert('Erro de conexão ao salvar campanha: ' + err.message);
+  }
+}
+
+window.selectCampaign = function(id) {
+  state.selectedCampaignId = id;
+  fetchStatus();
+};
+
+window.editCampaign = function(id) {
+  const camp = state.campaigns.find(c => c.id === id);
+  if (camp) openCampaignModal(camp);
+};
+
+window.toggleCampaign = async function(id) {
+  try {
+    const res = await fetch(`/api/campaigns/${id}/toggle`, { method: 'POST' });
+    const data = await res.json();
+    if (data.success) {
+      fetchStatus();
+    } else {
+      alert(data.error || 'Erro ao alternar status da campanha.');
+    }
+  } catch (err) {
+    alert('Erro ao alterar status: ' + err.message);
+  }
+};
+
+window.deleteCampaign = async function(id, name) {
+  if (!confirm(`Tem certeza que deseja excluir a campanha "${name}"? Os links monitorados serão removidos.`)) {
+    return;
+  }
+  try {
+    const res = await fetch(`/api/campaigns/${id}`, { method: 'DELETE' });
+    const data = await res.json();
+    if (data.success) {
+      if (state.selectedCampaignId === id) state.selectedCampaignId = 'all';
+      fetchStatus();
+    } else {
+      alert(data.error || 'Erro ao excluir campanha.');
+    }
+  } catch (err) {
+    alert('Erro ao excluir: ' + err.message);
+  }
+};
 
 // Ação: Testar link único de um grupo
 window.checkSingleLink = async function(inviteCode) {
@@ -419,15 +740,19 @@ window.checkSingleLink = async function(inviteCode) {
 };
 
 // Ação: Gerar novo link para um grupo específico
-window.renewGroupLink = async function(groupId, groupName) {
-  if (!confirm(`Deseja solicitar a geração de um novo link para o grupo "${groupName}" (ID: ${groupId}) no SendFlow?`)) {
+window.renewGroupLink = async function(groupId, groupName, releaseId) {
+  if (!confirm(`Deseja solicitar a geração de um novo link para o grupo "${groupName}" no SendFlow?`)) {
     return;
   }
   try {
-    const res = await fetch(`/api/groups/${groupId}/renew`, { method: 'POST' });
+    const res = await fetch(`/api/groups/${groupId}/renew`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ releaseId }),
+    });
     const data = await res.json();
     if (data.success) {
-      alert(`Ação de renovação enviada com sucesso ao SendFlow!\nAction ID: ${data.actionId || 'OK'}`);
+      alert(`Ação enviada com sucesso ao SendFlow!\n${data.message || 'OK'}`);
       fetchStatus();
     } else {
       alert(`Falha ao renovar link: ${data.error || 'Erro desconhecido'}`);

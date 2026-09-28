@@ -22,7 +22,7 @@ export const config = {
     recheckDelaySeconds: Math.max(10, parseInt(process.env.RECHECK_DELAY_SECONDS || '60', 10)),
   },
   scheduler: {
-    // Mínimo de segurança: 1 minuto (embora a API do Sendflow recomende 10 min por releaseId)
+    // Intervalo padrão entre ciclos de verificação
     intervalMinutes: Math.max(1, parseInt(process.env.CHECK_INTERVAL_MINUTES || '10', 10)),
     autoStart: process.env.AUTO_START_SCHEDULER !== 'false',
   },
@@ -51,21 +51,13 @@ export function validateConfig() {
   const errors = [];
 
   if (!config.sendflow.apiKey || config.sendflow.apiKey === 'sua_chave_de_api_aqui') {
-    errors.push('SENDFLOW_API_KEY não está configurada no .env');
-  }
-
-  if (!config.sendflow.releaseId || config.sendflow.releaseId === 'id_da_sua_campanha_aqui') {
-    errors.push('SENDFLOW_RELEASE_ID não está configurada no .env');
+    errors.push('SENDFLOW_API_KEY não está configurada no arquivo .env');
   }
 
   if (config.scheduler.intervalMinutes < 10) {
     warnings.push(
-      `CHECK_INTERVAL_MINUTES está definido como ${config.scheduler.intervalMinutes} min. A API do SendFlow possui limite de 10 min por releaseId. Caso haja requisições frequentes, a API responderá 403.`
+      `CHECK_INTERVAL_MINUTES está definido como ${config.scheduler.intervalMinutes} min. A API do SendFlow recomenda intervalo seguro de 10 min por campanha.`
     );
-  }
-
-  if (config.sendflow.accountsFrom === 'accounts' && config.sendflow.accounts.length === 0) {
-    errors.push('ACCOUNTS_FROM está definido como "accounts", mas nenhum ID foi informado em ACCOUNTS_IDS.');
   }
 
   return {
