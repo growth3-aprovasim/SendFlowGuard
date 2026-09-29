@@ -181,16 +181,28 @@ export class VerifierService {
 
         const checkResult = await WhatsAppChecker.checkInvite(inviteCode);
 
-        if (checkResult.isValid) {
-          // Link Ativo
+        if (checkResult.isValid && !checkResult.isTemporaryError) {
+          // Link Ativo e Confirmado
           this.addLog(
             'success',
             `${groupIndexLabel} Link Ativo: "${group.name}" (${checkResult.title}) em ${checkResult.durationMs}ms`
           );
           campSummary.valid++;
           this.updateGroupMemory(campaign, group, checkResult);
+        } else if (checkResult.isTemporaryError) {
+          // Oscilação temporária de rede / rate limit / desafio - Não disparar alarme falso nem revogar
+          this.addLog(
+            'warn',
+            `${groupIndexLabel} ⚠️ Oscilação transitória no WhatsApp para "${group.name}" (${checkResult.status}): ${checkResult.message}. Mantendo estado seguro.`
+          );
+          campSummary.errors++;
+          this.stats.errorCount++;
+          this.updateGroupMemory(campaign, group, {
+            ...checkResult,
+            isValid: true, // Preserva status seguro no dashboard
+          });
         } else {
-          // Link Quebrado / Revogado
+          // Link Quebrado / Revogado Confirmado
           this.addLog(
             'error',
             `${groupIndexLabel} 🚨 LINK QUEBRADO no grupo "${group.name}" (ID: ${group.id})! Status: ${checkResult.status} (${checkResult.message})`
