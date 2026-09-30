@@ -179,7 +179,16 @@ export class VerifierService {
         const linkUrl = `https://chat.whatsapp.com/${inviteCode}`;
         this.addLog('info', `${groupIndexLabel} Verificando "${group.name}" (${linkUrl})...`);
 
-        const checkResult = await WhatsAppChecker.checkInvite(inviteCode);
+        let checkResult = await WhatsAppChecker.checkInvite(inviteCode, { forceRefresh });
+
+        // Se deu erro temporário de rede ou WAF, dar uma segunda chance com pausa extra
+        if (checkResult.isTemporaryError) {
+          await new Promise(r => setTimeout(r, 2000 + Math.floor(Math.random() * 1000)));
+          const retryCheck = await WhatsAppChecker.checkInvite(inviteCode, { forceRefresh: true });
+          if (retryCheck.isValid && !retryCheck.isTemporaryError) {
+            checkResult = retryCheck;
+          }
+        }
 
         if (checkResult.isValid && !checkResult.isTemporaryError) {
           // Link Ativo e Confirmado
@@ -227,8 +236,8 @@ export class VerifierService {
           await this.handleBrokenGroup(campaign, group, linkUrl, campSummary);
         }
 
-        // Intervalo com jitter entre cada grupo para proteger IP de bloqueios no WhatsApp
-        const delayBetweenGroups = 1200 + Math.floor(Math.random() * 800);
+        // Intervalo seguro com jitter entre cada grupo para proteger IP de bloqueios no WhatsApp
+        const delayBetweenGroups = 1500 + Math.floor(Math.random() * 1000);
         await new Promise(r => setTimeout(r, delayBetweenGroups));
       }
 

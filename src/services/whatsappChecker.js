@@ -5,6 +5,10 @@
  */
 
 export class WhatsAppChecker {
+  // Cache em memória para evitar flood de requisições em links já confirmados ativos
+  static _cache = new Map();
+  static CACHE_TTL_MS = 3 * 60 * 1000; // 3 minutos para links válidos
+
   /**
    * Extrai o código do convite caso tenha vindo como URL completa
    * @param {string} inviteCodeOrUrl 
@@ -58,6 +62,7 @@ export class WhatsAppChecker {
    * @returns {string|null}
    */
   static extractMetaTag(html, key) {
+    if (!html) return null;
     const escapedKey = key.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
     const regexes = [
       new RegExp(`<meta[^>]+(?:property|name)=["']${escapedKey}["'][^>]+content=["']([^"']*)["']`, 'i'),
@@ -74,31 +79,59 @@ export class WhatsAppChecker {
   }
 
   /**
-   * Headers para Crawler/Bot Social (Tier 1 - Meta serve OpenGraph SSR puro sem cookie wall)
+   * Tier 1: Facebook / Meta Social External Hit (Serve OpenGraph SSR puro)
    */
-  static getCrawlerHeaders() {
+  static getFacebookCrawlerHeaders() {
     return {
       'User-Agent':
         'facebookexternalhit/1.1 (+http://www.facebook.com/externalhit_uatext.php)',
       'Accept':
         'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
-      'Accept-Language': 'pt-BR,pt;q=0.9,en-US;q=0.8',
+      'Accept-Language': 'pt-BR,pt;q=0.9,en-US;q=0.8,en;q=0.7',
       'Cache-Control': 'no-cache',
       'Pragma': 'no-cache',
+      'Connection': 'keep-alive',
     };
   }
 
   /**
-   * Headers Desktop Chrome com Cookies de Consentimento (Tier 2)
+   * Tier 2: WhatsApp App Native Crawler (Header usado pelo próprio app ao pré-visualizar links)
+   */
+  static getWhatsAppAppHeaders() {
+    return {
+      'User-Agent': 'WhatsApp/2.24.21.79 A',
+      'Accept':
+        'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
+      'Accept-Language': 'pt-BR,pt;q=0.9,en-US;q=0.8',
+      'Cache-Control': 'no-cache',
+      'Connection': 'keep-alive',
+    };
+  }
+
+  /**
+   * Tier 3: Social Bot Crawler (Twitterbot / Slackbot)
+   */
+  static getSocialBotHeaders() {
+    return {
+      'User-Agent': 'Twitterbot/1.0',
+      'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+      'Accept-Language': 'pt-BR,pt;q=0.9,en-US;q=0.8',
+      'Cache-Control': 'no-cache',
+      'Connection': 'keep-alive',
+    };
+  }
+
+  /**
+   * Tier 4: Desktop Chrome com Cookies de Consentimento
    */
   static getDesktopHeaders() {
     return {
       'User-Agent':
-        'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36',
+        'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
       'Accept':
         'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
       'Accept-Language': 'pt-BR,pt;q=0.9,en-US;q=0.8,en;q=0.7',
-      'Sec-Ch-Ua': '"Chromium";v="130", "Google Chrome";v="130", "Not?A_Brand";v="99"',
+      'Sec-Ch-Ua': '"Chromium";v="131", "Google Chrome";v="131", "Not_A Brand";v="24"',
       'Sec-Ch-Ua-Mobile': '?0',
       'Sec-Ch-Ua-Platform': '"Windows"',
       'Sec-Fetch-Dest': 'document',
@@ -109,24 +142,7 @@ export class WhatsAppChecker {
       'Cookie': 'wa_lang_pref=pt_BR; wa_ul=pt_BR; dpr=1',
       'Cache-Control': 'no-cache',
       'Pragma': 'no-cache',
-    };
-  }
-
-  /**
-   * Headers Mobile Safari (Tier 3)
-   */
-  static getMobileHeaders() {
-    return {
-      'User-Agent':
-        'Mozilla/5.0 (iPhone; CPU iPhone OS 17_5_1 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.5 Mobile/15E148 Safari/604.1',
-      'Accept':
-        'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-      'Accept-Language': 'pt-BR,pt;q=0.9,en-US;q=0.8',
-      'Sec-Fetch-Dest': 'document',
-      'Sec-Fetch-Mode': 'navigate',
-      'Sec-Fetch-Site': 'none',
-      'Cookie': 'wa_lang_pref=pt_BR; wa_ul=pt_BR',
-      'Cache-Control': 'no-cache',
+      'Connection': 'keep-alive',
     };
   }
 
@@ -134,7 +150,7 @@ export class WhatsAppChecker {
    * Analisa o HTML retornado e identifica o estado do grupo de forma detalhada
    */
   static parseInviteHtml(html, statusCode) {
-    if (!html || typeof html !== 'string') {
+    if (!html || typeof html !== 'string' || html.trim().length === 0) {
       return {
         isTemporaryError: true,
         reason: 'EMPTY_HTML_RESPONSE',
@@ -266,7 +282,6 @@ export class WhatsAppChecker {
       lowerHtml.includes('entrar na conversa') ||
       lowerHtml.includes('join chat');
 
-    // Imagem do grupo (pps.whatsapp.net indica foto personalizada do grupo ativa)
     const hasGroupAvatar = html.includes('pps.whatsapp.net') || html.includes('mms.whatsapp.net');
 
     return {
@@ -280,28 +295,137 @@ export class WhatsAppChecker {
   }
 
   /**
-   * Executa uma requisição HTTP individual com timeout
+   * Executa uma requisição HTTP individual com timeout completo (handshake + body stream)
    */
   static async fetchPage(url, headers, timeout = 9000) {
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), timeout);
+    let timeoutId;
     try {
+      timeoutId = setTimeout(() => controller.abort(), timeout);
       const res = await fetch(url, {
         method: 'GET',
         headers,
         signal: controller.signal,
       });
-      clearTimeout(timeoutId);
       const text = await res.text();
+      clearTimeout(timeoutId);
       return { status: res.status, text, ok: true };
     } catch (err) {
-      clearTimeout(timeoutId);
+      if (timeoutId) clearTimeout(timeoutId);
       return { status: 0, text: '', ok: false, error: err.message };
     }
   }
 
   /**
-   * Verifica se o link de convite do WhatsApp está ativo e válido com motor multi-tier anti-falso-positivo.
+   * Executa uma passada de verificação através dos tiers de cabeçalhos
+   */
+  static async _executeTiers(url, inviteCode, startTime) {
+    const tierProfiles = [
+      { name: 'FacebookCrawler', getHeaders: () => this.getFacebookCrawlerHeaders(), delayAfter: 500 },
+      { name: 'WhatsAppApp', getHeaders: () => this.getWhatsAppAppHeaders(), delayAfter: 600 },
+      { name: 'SocialBot', getHeaders: () => this.getSocialBotHeaders(), delayAfter: 800 },
+      { name: 'DesktopChrome', getHeaders: () => this.getDesktopHeaders(), delayAfter: 0 },
+    ];
+
+    let lastErrorReason = 'UNKNOWN';
+    let successfulPageLoadedWithoutGroup = false;
+
+    for (let i = 0; i < tierProfiles.length; i++) {
+      const tier = tierProfiles[i];
+      const req = await this.fetchPage(url, tier.getHeaders(), 7500);
+
+      if (req.ok) {
+        if (req.status === 404 || req.status === 410) {
+          return {
+            isValid: false,
+            isRevoked: true,
+            title: null,
+            inviteCode,
+            url,
+            status: 'NOT_FOUND',
+            message: 'Página de convite retornou 404/410 (Código inexistente ou deletado).',
+            checkedAt: new Date().toISOString(),
+            durationMs: Date.now() - startTime,
+          };
+        }
+
+        const parsed = this.parseInviteHtml(req.text, req.status);
+
+        if (parsed.detectedTitle) {
+          return {
+            isValid: true,
+            isRevoked: false,
+            title: parsed.detectedTitle,
+            inviteCode,
+            url,
+            status: 'VALID',
+            message: `Link ativo e funcionando: "${parsed.detectedTitle}"`,
+            checkedAt: new Date().toISOString(),
+            durationMs: Date.now() - startTime,
+          };
+        }
+
+        if (parsed.hasExplicitRevocation) {
+          return {
+            isValid: false,
+            isRevoked: true,
+            title: null,
+            inviteCode,
+            url,
+            status: 'REVOKED',
+            message: 'Link revogado confirmado (Mensagem explícita de revogação detectada).',
+            checkedAt: new Date().toISOString(),
+            durationMs: Date.now() - startTime,
+          };
+        }
+
+        if (parsed.isTemporaryError) {
+          lastErrorReason = parsed.reason;
+        } else {
+          // Página HTML carregou com sucesso (HTTP 200) sem bloqueios, mas sem nenhum nome de grupo associado
+          successfulPageLoadedWithoutGroup = true;
+        }
+      } else {
+        lastErrorReason = req.error || 'NETWORK_TIMEOUT';
+      }
+
+      if (tier.delayAfter > 0 && i < tierProfiles.length - 1) {
+        await new Promise(r => setTimeout(r, tier.delayAfter));
+      }
+    }
+
+    // Se carregou a página com sucesso e confirmou ausência de grupo: É REVOKED
+    if (successfulPageLoadedWithoutGroup) {
+      return {
+        isValid: false,
+        isRevoked: true,
+        title: null,
+        inviteCode,
+        url,
+        status: 'REVOKED',
+        message: 'Link revogado confirmado (Página de convite carregada sem identificação de grupo ativo).',
+        checkedAt: new Date().toISOString(),
+        durationMs: Date.now() - startTime,
+      };
+    }
+
+    // Se todas as tentativas falharam por bloqueio/WAF/rede: Estado seguro INCONCLUSIVE
+    return {
+      isValid: true, // Mantém seguro para não desativar o link por engano
+      isTemporaryError: true,
+      title: null,
+      inviteCode,
+      url,
+      status: 'INCONCLUSIVE',
+      message: `WhatsApp retornou desafio/bloqueio temporário (${lastErrorReason}). Estado seguro preservado.`,
+      checkedAt: new Date().toISOString(),
+      durationMs: Date.now() - startTime,
+    };
+  }
+
+  /**
+   * Verifica se o link de convite do WhatsApp está ativo e válido com motor multi-tier anti-falso-positivo,
+   * cache em memória com TTL e retry inteligente com backoff adaptativo.
    */
   static async checkInvite(inviteCodeOrUrl, options = {}) {
     const startTime = Date.now();
@@ -322,191 +446,50 @@ export class WhatsAppChecker {
       };
     }
 
-    // =========================================================================
-    // TIER 1: Crawler Social (Meta/Facebook Bot - Bypassa Cookie Wall e Captcha)
-    // =========================================================================
-    const req1 = await this.fetchPage(url, this.getCrawlerHeaders(), 8000);
-
-    if (req1.ok) {
-      if (req1.status === 404 || req1.status === 410) {
+    // 1. Verificar Cache de Alta Performance (se válido e recente)
+    const forceRefresh = Boolean(options.forceRefresh);
+    if (!forceRefresh) {
+      const cached = this._cache.get(inviteCode);
+      if (cached && Date.now() < cached.expiresAt) {
         return {
-          isValid: false,
-          isRevoked: true,
-          title: null,
-          inviteCode,
-          url,
-          status: 'NOT_FOUND',
-          message: 'Página de convite retornou 404/410 (Código inexistente ou deletado).',
-          checkedAt: new Date().toISOString(),
-          durationMs: Date.now() - startTime,
-        };
-      }
-
-      const parsed1 = this.parseInviteHtml(req1.text, req1.status);
-
-      if (parsed1.detectedTitle) {
-        return {
-          isValid: true,
-          isRevoked: false,
-          title: parsed1.detectedTitle,
-          inviteCode,
-          url,
-          status: 'VALID',
-          message: `Link ativo e funcionando: "${parsed1.detectedTitle}"`,
-          checkedAt: new Date().toISOString(),
-          durationMs: Date.now() - startTime,
-        };
-      }
-
-      if (parsed1.hasExplicitRevocation) {
-        return {
-          isValid: false,
-          isRevoked: true,
-          title: null,
-          inviteCode,
-          url,
-          status: 'REVOKED',
-          message: 'Link revogado confirmado (Mensagem explícita de revogação detectada).',
-          checkedAt: new Date().toISOString(),
+          ...cached.data,
+          fromCache: true,
           durationMs: Date.now() - startTime,
         };
       }
     }
 
-    // Pequena pausa entre tiers
-    await new Promise(r => setTimeout(r, 600));
+    // 2. Primeira Passada de Tiers
+    let result = await this._executeTiers(url, inviteCode, startTime);
 
-    // =========================================================================
-    // TIER 2: Desktop Chrome com Cookies de Consentimento
-    // =========================================================================
-    const req2 = await this.fetchPage(url, this.getDesktopHeaders(), 8000);
+    // 3. Auto-Retry Inteligente: Se caiu em erro temporário (WAF / empty response / rate-limit)
+    if (result.isTemporaryError && !options.skipRetry) {
+      // Pausa com backoff adaptativo e jitter (2.0s a 3.0s) para o WAF da Meta liberar a janela
+      const backoffMs = 2000 + Math.floor(Math.random() * 1000);
+      await new Promise(r => setTimeout(r, backoffMs));
 
-    if (req2.ok) {
-      if (req2.status === 404 || req2.status === 410) {
-        return {
-          isValid: false,
-          isRevoked: true,
-          title: null,
-          inviteCode,
-          url,
-          status: 'NOT_FOUND',
-          message: 'Página de convite retornou 404 (Não encontrada).',
-          checkedAt: new Date().toISOString(),
-          durationMs: Date.now() - startTime,
-        };
-      }
-
-      const parsed2 = this.parseInviteHtml(req2.text, req2.status);
-
-      if (parsed2.detectedTitle) {
-        return {
-          isValid: true,
-          isRevoked: false,
-          title: parsed2.detectedTitle,
-          inviteCode,
-          url,
-          status: 'VALID',
-          message: `Link ativo e validado via Desktop: "${parsed2.detectedTitle}"`,
-          checkedAt: new Date().toISOString(),
-          durationMs: Date.now() - startTime,
-        };
-      }
-
-      if (parsed2.hasExplicitRevocation) {
-        return {
-          isValid: false,
-          isRevoked: true,
-          title: null,
-          inviteCode,
-          url,
-          status: 'REVOKED',
-          message: 'Link revogado confirmado (Mensagem de revogação na página Desktop).',
-          checkedAt: new Date().toISOString(),
-          durationMs: Date.now() - startTime,
-        };
+      // Segunda tentativa
+      const retryResult = await this._executeTiers(url, inviteCode, startTime);
+      if (retryResult.isValid && !retryResult.isTemporaryError) {
+        result = retryResult;
       }
     }
 
-    // Pequena pausa antes do Tier 3
-    await new Promise(r => setTimeout(r, 800));
-
-    // =========================================================================
-    // TIER 3: Mobile Safari iOS (Confirmação Final)
-    // =========================================================================
-    const req3 = await this.fetchPage(url, this.getMobileHeaders(), 8000);
-
-    if (req3.ok) {
-      if (req3.status === 404 || req3.status === 410) {
-        return {
-          isValid: false,
-          isRevoked: true,
-          title: null,
-          inviteCode,
-          url,
-          status: 'NOT_FOUND',
-          message: 'Página de convite retornou 404 (Mobile).',
-          checkedAt: new Date().toISOString(),
-          durationMs: Date.now() - startTime,
-        };
-      }
-
-      const parsed3 = this.parseInviteHtml(req3.text, req3.status);
-
-      if (parsed3.detectedTitle) {
-        return {
-          isValid: true,
-          isRevoked: false,
-          title: parsed3.detectedTitle,
-          inviteCode,
-          url,
-          status: 'VALID',
-          message: `Link ativo e validado via Mobile: "${parsed3.detectedTitle}"`,
-          checkedAt: new Date().toISOString(),
-          durationMs: Date.now() - startTime,
-        };
-      }
-
-      // Se foi bloqueado por WAF/RateLimit ou erro 5xx, NÃO classificar como REVOKED para evitar alarme falso
-      if (parsed3.isTemporaryError) {
-        return {
-          isValid: true, // Mantém seguro para não desativar o link por engano
-          isTemporaryError: true,
-          title: null,
-          inviteCode,
-          url,
-          status: 'INCONCLUSIVE',
-          message: `WhatsApp retornou desafio/bloqueio temporário (${parsed3.reason}). Estado seguro preservado.`,
-          checkedAt: new Date().toISOString(),
-          durationMs: Date.now() - startTime,
-        };
-      }
-
-      // Se a página de convite carregou sem erros, mas sem nome de grupo nem avatar, é realmente revogado
-      return {
-        isValid: false,
-        isRevoked: true,
-        title: null,
-        inviteCode,
-        url,
-        status: 'REVOKED',
-        message: 'Link revogado confirmado (Nenhum nome de grupo detectado após 3 análises de camadas).',
-        checkedAt: new Date().toISOString(),
-        durationMs: Date.now() - startTime,
-      };
+    // 4. Salvar no Cache se estiver VALID
+    if (result.isValid && !result.isTemporaryError && result.title) {
+      this._cache.set(inviteCode, {
+        data: result,
+        expiresAt: Date.now() + this.CACHE_TTL_MS,
+      });
     }
 
-    // Se todas as 3 requisições falharam por rede/timeout/conexão: NÃO declarar como revogado!
-    return {
-      isValid: true, // Não dispara desativação nem alarme falso de revogação
-      isTemporaryError: true,
-      title: null,
-      inviteCode,
-      url,
-      status: 'NETWORK_ERROR',
-      message: 'Oscilação temporária de conexão com os servidores do WhatsApp. Grupo mantido sem alterações.',
-      checkedAt: new Date().toISOString(),
-      durationMs: Date.now() - startTime,
-    };
+    return result;
+  }
+
+  /**
+   * Limpa o cache interno de links válidos
+   */
+  static clearCache() {
+    this._cache.clear();
   }
 }
-
