@@ -10,6 +10,7 @@ import path from 'path';
 import fs from 'fs';
 import QRCode from 'qrcode';
 import { ROOT_DIR } from '../config.js';
+import { verifierService } from './verifier.js';
 
 class WhatsAppSocketService {
   constructor() {
@@ -25,6 +26,14 @@ class WhatsAppSocketService {
     this.isInitializing = false;
     this.reconnectTimeout = null;
     this.logger = pino({ level: 'silent' });
+  }
+
+  log(level, msg) {
+    const time = new Date().toLocaleTimeString('pt-BR');
+    console.log(`[${time}] [WhatsApp Protocol] ${msg}`);
+    try {
+      verifierService.addLog(level, `[WhatsApp Protocol] ${msg}`);
+    } catch {}
   }
 
   /**
@@ -46,7 +55,7 @@ class WhatsAppSocketService {
    * Inicializa o socket do Baileys
    */
   async initSocket(forceFresh = false) {
-    if (this.sock && (this.status === 'CONNECTED') && !forceFresh) {
+    if (this.sock && this.status === 'CONNECTED' && !forceFresh) {
       return this.sock;
     }
 
@@ -59,6 +68,7 @@ class WhatsAppSocketService {
 
     try {
       if (forceFresh) {
+        this.log('warn', 'Limpando pasta de autenticação para iniciar pareamento do zero...');
         this.clearAuthFiles();
       }
 
@@ -69,6 +79,8 @@ class WhatsAppSocketService {
       const { state, saveCreds } = await useMultiFileAuthState(this.authDir);
       const { version } = await fetchLatestBaileysVersion().catch(() => ({ version: [2, 3000, 1017531287] }));
 
+      this.log('info', `Inicializando conexão WebSocket com WhatsApp (Versão Baileys: ${version.join('.')})...`);
+
       this.sock = makeWASocket({
         version,
         logger: this.logger,
@@ -77,28 +89,37 @@ class WhatsAppSocketService {
           creds: state.creds,
           keys: makeCacheableSignalKeyStore(state.keys, this.logger),
         },
-        // Browsers.ubuntu('Chrome') ou Browsers.macOS('Desktop') são os únicos 100% aceitos pela Meta no Pairing Code
-        browser: Browsers.macOS('Desktop'),
+        // Browsers.ubuntu('Chrome') é a tupla recomendada oficialmente para Pairing Code
+        browser: Browsers.ubuntu('Chrome'),
         syncFullHistory: false,
         markOnlineOnConnect: false,
         generateHighQualityLinkPreview: false,
         connectTimeoutMs: 60000,
-        defaultQueryTimeoutMs: 15000,
-        keepAliveIntervalMs: 25000,
+        defaultQueryTimeoutMs: 20000,
+        keepAliveIntervalMs: 30000,
         emitOwnEvents: false,
         retryRequestDelayMs: 2000,
       });
 
-      this.sock.ev.on('creds.update', saveCreds);
+      this.sock.ev.on('creds.update', async () => {
+        await saveCreds();
+        this.log('info', 'Chaves e credenciais criptográficas salvas no disco.');
+      });
 
       this.sock.ev.on('connection.update', async (update) => {
         const { connection, lastDisconnect, qr } = update;
 
-        // Se gerou QR Code visual
         if (qr) {
           try {
             this.lastQrDataUrl = await QRCode.toDataURL(qr);
-          } catch {}
+            this.log('info', 'QR Code de pareamento gerado e disponível no dashboard.');
+          } catch (err) {
+            this.log('error', `Falha ao converter QR Code: ${err.message}`);
+          }
+        }
+
+        if (connection === 'connecting') {
+          this.log('info', 'Negociando handshake e chaves de segurança com os servidores da Meta...');
         }
 
         if (connection === 'open') {
@@ -108,12 +129,13 @@ class WhatsAppSocketService {
           this.lastPairingCode = null;
           this.lastQrDataUrl = null;
           this.phoneNumber = this.sock?.user?.id ? this.sock.user.id.split(':')[0].split('@')[0] : this.phoneNumber;
-          console.log(`[WhatsApp Protocol] ✅ Conectado com sucesso ao WhatsApp! (+${this.phoneNumber || 'Ativo'})`);
+          this.log('success', `🎉 Conexão estabelecida com sucesso! Aparelho autenticado: +${this.phoneNumber || 'Ativo'}`);
         } else if (connection === 'close') {
           const statusCode = lastDisconnect?.error?.output?.statusCode;
+          const errorMsg = lastDisconnect?.error?.message || 'Conexão encerrada';
           const shouldReconnect = statusCode !== DisconnectReason.loggedOut;
 
-          console.log(`[WhatsApp Protocol] Conexão finalizada. Código: ${statusCode || lastDisconnect?.error?.message}`);
+          this.log('warn', `Conexão fechada pelo servidor. Código: ${statusCode ?? 'N/A'} (${errorMsg})`);
 
           if (statusCode === DisconnectReason.loggedOut) {
             this.status = 'DISCONNECTED';
@@ -121,12 +143,17 @@ class WhatsAppSocketService {
             this.lastPairingCode = null;
             this.lastQrDataUrl = null;
             this.clearAuthFiles();
-            console.log('[WhatsApp Protocol] ⚠️ Sessão desconectada. Credenciais limpas.');
+            this.log('error', '⚠️ Sessão finalizada (Logged Out). Credenciais limpas.');
+          } else if (statusCode === DisconnectReason.restartRequired) {
+            this.log('info', 'Reinício de handshake solicitado pelo WhatsApp. Reconectando instantaneamente...');
+            this.status = 'CONNECTING';
+            this.initSocket(false).catch(() => {});
           } else if (shouldReconnect) {
             this.status = 'CONNECTING';
+            this.log('info', 'Tentando reconectar aos servidores do WhatsApp em 4 segundos...');
             if (this.reconnectTimeout) clearTimeout(this.reconnectTimeout);
             this.reconnectTimeout = setTimeout(() => {
-              this.initSocket().catch(() => {});
+              this.initSocket(false).catch(() => {});
             }, 4000);
           } else {
             this.status = 'DISCONNECTED';
@@ -140,7 +167,7 @@ class WhatsAppSocketService {
       this.isInitializing = false;
       this.status = 'DISCONNECTED';
       this.lastError = err.message;
-      console.error('[WhatsApp Protocol] Erro ao inicializar socket:', err.message);
+      this.log('error', `Erro crítico ao inicializar socket: ${err.message}`);
       return null;
     }
   }
@@ -169,7 +196,9 @@ class WhatsAppSocketService {
       };
     }
 
-    // Para gerar um Pairing Code limpo sem conflito criptográfico, resetamos tentativas incompletas
+    this.log('info', `Solicitando novo código de pareamento para o número +${cleanPhone}...`);
+
+    // Reset de qualquer conexão aberta anterior para gerar chaves limpas
     try {
       if (this.sock) {
         this.sock.end();
@@ -184,20 +213,21 @@ class WhatsAppSocketService {
       throw new Error('Falha ao inicializar o cliente do WhatsApp.');
     }
 
-    // Aguarda 2 segundos para o WebSocket conectar aos servidores da Meta
-    await new Promise(r => setTimeout(r, 2000));
+    // Aguarda 3 segundos para o WebSocket conectar e receber os dados iniciais do servidor
+    await new Promise(r => setTimeout(r, 3000));
 
     try {
       this.status = 'PAIRING';
       this.phoneNumber = cleanPhone;
 
+      this.log('info', `Enviando requisição de Pairing Code para +${cleanPhone}...`);
       const code = await this.sock.requestPairingCode(cleanPhone);
       const formattedCode = code?.match(/.{1,4}/g)?.join('-') || code;
 
       this.lastPairingCode = formattedCode;
       this.pairingCodeExpiresAt = Date.now() + 180000; // 3 minutos
 
-      console.log(`[WhatsApp Protocol] 🔑 Código de pareamento gerado para +${cleanPhone}: ${formattedCode}`);
+      this.log('success', `🔑 CÓDIGO DE PAREAMENTO GERADO: ${formattedCode} (Digite no celular em até 3 minutos)`);
 
       return {
         pairingCode: formattedCode,
@@ -208,6 +238,7 @@ class WhatsAppSocketService {
     } catch (err) {
       this.status = 'DISCONNECTED';
       this.lastError = err.message;
+      this.log('error', `Erro ao solicitar código de pareamento: ${err.message}`);
       throw new Error(`Erro ao solicitar código de pareamento: ${err.message}`);
     }
   }
@@ -216,6 +247,7 @@ class WhatsAppSocketService {
    * Desconecta o WhatsApp e remove as credenciais salvas
    */
   async disconnect() {
+    this.log('warn', 'Desconectando sessão do WhatsApp...');
     try {
       if (this.sock) {
         await this.sock.logout().catch(() => {});
@@ -228,6 +260,7 @@ class WhatsAppSocketService {
     this.phoneNumber = null;
     this.lastPairingCode = null;
     this.lastQrDataUrl = null;
+    this.log('info', 'WhatsApp desconectado com sucesso.');
     return { success: true, message: 'WhatsApp desconectado com sucesso.' };
   }
 
@@ -380,8 +413,8 @@ class WhatsAppSocketService {
    */
   autoStartIfAuthExists() {
     if (this.hasSavedAuth()) {
-      console.log('[WhatsApp Protocol] Credenciais salvas encontradas. Conectando automaticamente...');
-      this.initSocket().catch(() => {});
+      this.log('info', 'Credenciais salvas encontradas. Conectando automaticamente...');
+      this.initSocket(false).catch(() => {});
     }
   }
 }
