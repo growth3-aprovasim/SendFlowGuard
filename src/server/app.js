@@ -9,6 +9,7 @@ import { WhatsAppChecker } from '../services/whatsappChecker.js';
 import { campaignManager } from '../services/campaignManager.js';
 import { sendflowClient } from '../services/sendflow.js';
 import { whatsappSocketService } from '../services/whatsappSocket.js';
+import { antiHackerService } from '../services/antiHacker.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -18,6 +19,9 @@ export function createServer() {
 
   // Inicia conexão automática com WhatsApp se houver credenciais salvas
   whatsappSocketService.autoStartIfAuthExists();
+
+  // Inicia autoBoot do Motor Aegis Anti-Hacker
+  antiHackerService.autoBoot();
 
   app.use(express.json());
   app.use(express.static(path.join(__dirname, 'public')));
@@ -38,6 +42,81 @@ export function createServer() {
         cooldown: sendflowClient.getUpdateCooldownStatus(),
       },
     });
+  });
+
+  // ==========================================
+  // ROTAS DO ANTI-HACKER BRABO (AEGIS 8.2)
+  // ==========================================
+  app.get('/api/antihacker/status', (req, res) => {
+    res.json({ success: true, data: antiHackerService.getStatus() });
+  });
+
+  app.get('/api/antihacker/config', (req, res) => {
+    res.json({ success: true, config: antiHackerService.config });
+  });
+
+  app.post('/api/antihacker/config', (req, res) => {
+    try {
+      const { enabled, whitelist, qtdSnipers, qtdEspioes, grupoAlertas } = req.body;
+      if (typeof enabled === 'boolean') antiHackerService.config.enabled = enabled;
+      if (Array.isArray(whitelist)) antiHackerService.config.whitelist = whitelist;
+      if (typeof qtdSnipers === 'number') antiHackerService.config.qtdSnipers = Math.max(1, Math.min(20, qtdSnipers));
+      if (typeof qtdEspioes === 'number') antiHackerService.config.qtdEspioes = Math.max(1, Math.min(30, qtdEspioes));
+      if (typeof grupoAlertas === 'string') antiHackerService.config.grupoAlertas = grupoAlertas.trim();
+
+      antiHackerService.saveConfig();
+      antiHackerService.addLog('info', 'Configurações táticas do Anti-Hacker atualizadas.');
+      res.json({ success: true, config: antiHackerService.config });
+    } catch (err) {
+      res.status(400).json({ success: false, error: err.message });
+    }
+  });
+
+  app.post('/api/antihacker/agents/:type/:index/pairing-code', async (req, res) => {
+    const { type, index } = req.params;
+    const { phoneNumber } = req.body;
+    try {
+      const result = await antiHackerService.conectarAgente({
+        type,
+        index: parseInt(index, 10),
+        phoneNumber,
+        forceFresh: true,
+      });
+      res.json({ success: true, ...result });
+    } catch (err) {
+      res.status(400).json({ success: false, error: err.message });
+    }
+  });
+
+  app.post('/api/antihacker/agents/:type/:index/disconnect', async (req, res) => {
+    const { type, index } = req.params;
+    try {
+      const result = await antiHackerService.desconectarAgente(type, parseInt(index, 10));
+      res.json({ success: true, ...result });
+    } catch (err) {
+      res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
+  app.get('/api/antihacker/blacklist', (req, res) => {
+    res.json({ success: true, blacklist: antiHackerService.cacheBlacklist });
+  });
+
+  app.post('/api/antihacker/blacklist', (req, res) => {
+    const { number } = req.body;
+    if (!number) return res.status(400).json({ success: false, error: 'Número obrigatório.' });
+    antiHackerService.adicionarNaBlacklist(number);
+    res.json({ success: true, blacklist: antiHackerService.cacheBlacklist });
+  });
+
+  app.delete('/api/antihacker/blacklist/:number', (req, res) => {
+    const { number } = req.params;
+    antiHackerService.removerDaBlacklist(number);
+    res.json({ success: true, blacklist: antiHackerService.cacheBlacklist });
+  });
+
+  app.get('/api/antihacker/stats', (req, res) => {
+    res.json({ success: true, stats: antiHackerService.cacheEstatisticas });
   });
 
   // ==========================================

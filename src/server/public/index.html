@@ -3,15 +3,15 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>SendFlow Guard • Monitor Multi-Campanhas & Auto-Recuperação</title>
+  <title>SendFlow Guard & Anti-Hacker Brabo • Central Unificada WhatsApp</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="/style.css" />
 </head>
 <body>
   <div class="app-layout">
-    <!-- Navbar Superior -->
+    <!-- Navbar Superior com Seletor de Módulos -->
     <header class="navbar">
       <div class="brand">
         <div class="brand-icon">
@@ -22,14 +22,27 @@
         </div>
         <div>
           <div class="brand-title">
-            SendFlow Guard <span class="badge-version">Multi-Campanhas</span>
+            WhatsApp Command Center <span class="badge-version">v8.2 Suite</span>
           </div>
-          <div class="brand-sub">Verificação Contínua & Auto-Recuperação Inteligente</div>
+          <div class="brand-sub">Monitor de Campanhas & Motor de Defesa Militar</div>
         </div>
       </div>
 
-      <div class="header-actions">
-        <!-- Badge de Proteção de API SendFlow -->
+      <!-- Alternador de Módulos (SendFlow Guard / Anti-Hacker Brabo) -->
+      <div class="module-switcher">
+        <button id="navModuleSendFlow" class="module-nav-btn active">
+          <span class="nav-icon">🛡️</span>
+          <span>SendFlow Guard</span>
+        </button>
+        <button id="navModuleAntiHacker" class="module-nav-btn">
+          <span class="nav-icon">⚡</span>
+          <span>Anti-Hacker Brabo</span>
+          <span class="badge-aegis">AEGIS 8.2</span>
+        </button>
+      </div>
+
+      <!-- Ações do Header (SendFlow) -->
+      <div class="header-actions" id="sendflowHeaderActions">
         <div id="apiQuotaBadge" class="chip chip-quota" title="Proteção contra derrubada da API: Máximo 4 alterações em 15 min">
           <span class="quota-icon">🛡️</span>
           <span class="chip-label">Cota API:</span>
@@ -55,311 +68,529 @@
           <span id="verifyBtnLabel">Verificar Tudo Agora</span>
         </button>
       </div>
+
+      <!-- Ações do Header (Anti-Hacker) -->
+      <div class="header-actions" id="antihackerHeaderActions" style="display: none;">
+        <button id="toggleAegisDefenseBtn" class="btn btn-primary">
+          <span class="btn-icon" id="aegisToggleIcon">🛡️</span>
+          <span id="aegisToggleText">Proteção Ativa</span>
+        </button>
+      </div>
     </header>
 
-    <!-- Banner de Alerta de Configuração (se faltar API KEY no .env) -->
-    <div id="configAlert" class="alert alert-warning" style="display: none;">
-      <div class="alert-icon">⚠️</div>
-      <div class="alert-content">
-        <div class="alert-title">Configuração da API Key Pendente</div>
-        <div class="alert-desc">Sua chave de API do SendFlow (<code>SENDFLOW_API_KEY</code>) ainda não foi preenchida no arquivo <code>.env</code>.</div>
-      </div>
-    </div>
-
-    <!-- Indicador de Status Geral -->
-    <div class="status-ribbon">
-      <div class="ribbon-item">
-        <span class="dot" id="systemStateDot"></span>
-        <span id="systemStateText">Sistema Ativo</span>
-      </div>
-      <div class="ribbon-item">
-        <span class="text-muted">Campanhas Ativas:</span>
-        <strong id="activeCampaignsCountText" class="mono font-bold">0</strong>
-      </div>
-      <div class="ribbon-item">
-        <span class="text-muted">Intervalo Geral:</span>
-        <strong id="intervalText" class="mono">-- min</strong>
-      </div>
-      <div class="ribbon-item">
-        <span class="text-muted">Última Checagem:</span>
-        <strong id="lastCheckText" class="mono">Ainda não executada</strong>
-      </div>
-      <div class="ribbon-item">
-        <span class="text-muted">Próxima Checagem em:</span>
-        <strong id="countdownText" class="badge-countdown mono">--:--</strong>
-      </div>
-    </div>
-
-    <!-- Seção de Seleção e Navegação de Campanhas -->
-    <section class="campaign-nav-section">
-      <div class="campaign-tabs-header">
-        <div class="tabs-label">Campanhas:</div>
-        <div class="campaign-tabs" id="campaignTabsContainer">
-          <button class="tab-btn active" data-campaign-id="all">
-            🌐 Todas as Campanhas (<span id="allCountBadge">0</span>)
-          </button>
-          <!-- Abas das campanhas dinâmicas serão inseridas aqui -->
+    <!-- ================================================================= -->
+    <!-- MÓDULO 1: SENDFLOW GUARD (VERIFICADOR DE GRUPOS & LINK MÃE)       -->
+    <!-- ================================================================= -->
+    <div id="sendflowView" class="module-view active">
+      <!-- Banner de Alerta de Configuração -->
+      <div id="configAlert" class="alert alert-warning" style="display: none;">
+        <div class="alert-icon">⚠️</div>
+        <div class="alert-content">
+          <div class="alert-title">Configuração da API Key Pendente</div>
+          <div class="alert-desc">Sua chave de API do SendFlow (<code>SENDFLOW_API_KEY</code>) ainda não foi preenchida no arquivo <code>.env</code>.</div>
         </div>
       </div>
-    </section>
 
-    <!-- Grade de Cards das Campanhas Cadastradas -->
-    <section class="campaigns-cards-grid" id="campaignsCardsGrid">
-      <!-- Cards de campanhas inseridos via JS -->
-    </section>
+      <!-- Indicador de Status Geral -->
+      <div class="status-ribbon">
+        <div class="ribbon-item">
+          <span class="dot" id="systemStateDot"></span>
+          <span id="systemStateText">Sistema Ativo</span>
+        </div>
+        <div class="ribbon-item">
+          <span class="text-muted">Campanhas Ativas:</span>
+          <strong id="activeCampaignsCountText" class="mono font-bold">0</strong>
+        </div>
+        <div class="ribbon-item">
+          <span class="text-muted">Intervalo Geral:</span>
+          <strong id="intervalText" class="mono">-- min</strong>
+        </div>
+        <div class="ribbon-item">
+          <span class="text-muted">Última Checagem:</span>
+          <strong id="lastCheckText" class="mono">Ainda não executada</strong>
+        </div>
+        <div class="ribbon-item">
+          <span class="text-muted">Próxima Checagem em:</span>
+          <strong id="countdownText" class="badge-countdown mono">--:--</strong>
+        </div>
+      </div>
 
-    <!-- Card de Destaque: Monitoramento do Link Mãe -->
-    <section class="card master-link-card" id="masterLinkCard">
-      <div class="master-link-header">
-        <div class="master-link-title-box">
-          <div class="master-link-icon-wrap">👑</div>
-          <div>
-            <div class="master-link-title">
-              <span id="masterLinkSectionTitle">Link Mãe (Redirecionador Principal)</span>
-            </div>
-            <div class="master-link-sub">O canal de entrada mais crítico da sua campanha • Monitorado em tempo real</div>
+      <!-- Seção de Seleção e Navegação de Campanhas -->
+      <section class="campaign-nav-section">
+        <div class="campaign-tabs-header">
+          <div class="tabs-label">Campanhas:</div>
+          <div class="campaign-tabs" id="campaignTabsContainer">
+            <button class="tab-btn active" data-campaign-id="all">
+              🌐 Todas as Campanhas (<span id="allCountBadge">0</span>)
+            </button>
           </div>
-        </div>
-        <div class="master-link-badge-box">
-          <span id="masterLinkStatusBadge" class="master-badge badge-unconfigured">● Não Configurado</span>
-          <button id="testMasterLinkBtn" class="btn btn-secondary btn-sm">
-            ⚡ Testar Link Mãe
-          </button>
-        </div>
-      </div>
-
-      <div class="master-link-body">
-        <div class="master-detail-row">
-          <div class="master-col">
-            <span class="detail-label">URL do Link Mãe:</span>
-            <div class="detail-val-box">
-              <span id="masterLinkUrlText" class="mono text-truncate">Cadastre uma campanha com Link Mãe</span>
-              <button id="copyMasterLinkBtn" class="btn-ghost-sm" title="Copiar" style="display: none;">📋</button>
-            </div>
-          </div>
-
-          <div class="master-col">
-            <span class="detail-label">Destino Atual (WhatsApp):</span>
-            <div class="detail-val-box" id="masterDestinationBox">
-              <span id="masterDestinationText" class="mono text-muted">Aguardando verificação...</span>
-            </div>
-          </div>
-
-          <div class="master-col col-sm">
-            <span class="detail-label">Tempo de Resposta:</span>
-            <div id="masterLatencyText" class="mono font-bold">-- ms</div>
-          </div>
-
-          <div class="master-col col-sm">
-            <span class="detail-label">Frequência:</span>
-            <div id="masterIntervalText" class="mono text-muted">A cada 60s</div>
-          </div>
-        </div>
-
-        <div id="masterLinkMsg" class="master-alert" style="display: none;"></div>
-      </div>
-    </section>
-
-    <!-- Métricas Globais ou da Campanha Selecionada -->
-    <section class="metrics-grid">
-      <div class="metric-card">
-        <div class="metric-header">
-          <span class="metric-label">Total de Grupos</span>
-          <span class="metric-icon-wrap icon-purple">👥</span>
-        </div>
-        <div class="metric-value" id="metricTotal">0</div>
-        <div class="metric-sub">Sincronizados das campanhas</div>
-      </div>
-
-      <div class="metric-card">
-        <div class="metric-header">
-          <span class="metric-label">Links Ativos (OK)</span>
-          <span class="metric-icon-wrap icon-green">✅</span>
-        </div>
-        <div class="metric-value text-success" id="metricValid">0</div>
-        <div class="metric-sub">Respondendo com sucesso</div>
-      </div>
-
-      <div class="metric-card">
-        <div class="metric-header">
-          <span class="metric-label">Revogados Detectados</span>
-          <span class="metric-icon-wrap icon-red">🚨</span>
-        </div>
-        <div class="metric-value text-danger" id="metricRevoked">0</div>
-        <div class="metric-sub">Links inválidos identificados</div>
-      </div>
-
-      <div class="metric-card">
-        <div class="metric-header">
-          <span class="metric-label">Links Recuperados</span>
-          <span class="metric-icon-wrap icon-blue">🔄</span>
-        </div>
-        <div class="metric-value text-info" id="metricRecovered">0</div>
-        <div class="metric-sub">Novos links gerados pelo SendFlow</div>
-      </div>
-    </section>
-
-    <!-- Layout Principal: Tabela de Grupos + Sidebar -->
-    <main class="dashboard-grid">
-      <!-- Coluna Principal: Grupos -->
-      <section class="card panel-groups">
-        <div class="card-header">
-          <div class="card-title-group">
-            <h2 class="card-title">Grupos de WhatsApp</h2>
-            <span class="badge" id="groupsCountBadge">0 grupos</span>
-          </div>
-          <div class="table-actions">
-            <input type="text" id="filterInput" class="search-input" placeholder="Buscar por grupo, campanha ou ID..." />
-          </div>
-        </div>
-
-        <div class="table-container">
-          <table class="data-table">
-            <thead>
-              <tr>
-                <th>Campanha</th>
-                <th>Grupo</th>
-                <th>Link de Convite</th>
-                <th>Status</th>
-                <th>Participantes</th>
-                <th>Última Checagem</th>
-                <th class="text-right">Ações</th>
-              </tr>
-            </thead>
-            <tbody id="groupsTableBody">
-              <tr>
-                <td colspan="7" class="text-center py-6 text-muted">
-                  Nenhum grupo carregado ainda. Aguardando primeira verificação...
-                </td>
-              </tr>
-            </tbody>
-          </table>
         </div>
       </section>
 
-      <!-- Coluna Lateral: Conexão WhatsApp, Segurança da API, Testador Rápido e Logs -->
-      <div class="sidebar-panels">
-        <!-- Widget de Conexão WhatsApp Oficial (Pairing Code) -->
-        <section class="card panel-whatsapp" id="panelWhatsapp">
-          <div class="card-header">
-            <div class="card-title-group">
-              <h2 class="card-title">📱 Conexão WhatsApp (Protocolo Oficial)</h2>
-              <span id="waBadgeStatus" class="master-badge badge-unconfigured">● Desconectado</span>
+      <!-- Grade de Cards das Campanhas Cadastradas -->
+      <section class="campaigns-cards-grid" id="campaignsCardsGrid">
+        <!-- Cards de campanhas inseridos via JS -->
+      </section>
+
+      <!-- Card de Destaque: Monitoramento do Link Mãe -->
+      <section class="card master-link-card" id="masterLinkCard">
+        <div class="master-link-header">
+          <div class="master-link-title-box">
+            <div class="master-link-icon-wrap">👑</div>
+            <div>
+              <div class="master-link-title">
+                <span id="masterLinkSectionTitle">Link Mãe (Redirecionador Principal)</span>
+              </div>
+              <div class="master-link-sub">O canal de entrada mais crítico da sua campanha • Monitorado em tempo real</div>
             </div>
           </div>
-          <div class="whatsapp-body">
-            <!-- Estado Conectado -->
-            <div id="waConnectedState" style="display: none;">
-              <div class="wa-connected-box">
-                <div class="wa-connected-icon">🟢</div>
-                <div class="wa-connected-info">
-                  <div class="wa-connected-title font-bold">WhatsApp Conectado</div>
-                  <div class="wa-connected-number mono" id="waConnectedNumber">+55 (XX) XXXXX-XXXX</div>
-                  <div class="wa-connected-sub text-muted text-sm">Verificação 100% precisa e contagem de membros ativas.</div>
-                </div>
-              </div>
-              <div class="wa-actions-row">
-                <button id="waDisconnectBtn" class="btn btn-secondary btn-sm text-danger">Desconectar Aparelho</button>
+          <div class="master-link-badge-box">
+            <span id="masterLinkStatusBadge" class="master-badge badge-unconfigured">● Não Configurado</span>
+            <button id="testMasterLinkBtn" class="btn btn-secondary btn-sm">
+              ⚡ Testar Link Mãe
+            </button>
+          </div>
+        </div>
+
+        <div class="master-link-body">
+          <div class="master-detail-row">
+            <div class="master-col">
+              <span class="detail-label">URL do Link Mãe:</span>
+              <div class="detail-val-box">
+                <span id="masterLinkUrlText" class="mono text-truncate">Cadastre uma campanha com Link Mãe</span>
+                <button id="copyMasterLinkBtn" class="btn-ghost-sm" title="Copiar" style="display: none;">📋</button>
               </div>
             </div>
 
-            <!-- Estado Desconectado / Gerar Pairing Code -->
-            <div id="waDisconnectedState">
-              <p class="text-muted text-sm">
-                Conecte um número de apoio via <strong>Código de 8 dígitos</strong> para ter 100% de certeza e contagem de membros em tempo real:
+            <div class="master-col">
+              <span class="detail-label">Destino Atual (WhatsApp):</span>
+              <div class="detail-val-box" id="masterDestinationBox">
+                <span id="masterDestinationText" class="mono text-muted">Aguardando verificação...</span>
+              </div>
+            </div>
+
+            <div class="master-col col-sm">
+              <span class="detail-label">Tempo de Resposta:</span>
+              <div id="masterLatencyText" class="mono font-bold">-- ms</div>
+            </div>
+
+            <div class="master-col col-sm">
+              <span class="detail-label">Frequência:</span>
+              <div id="masterIntervalText" class="mono text-muted">A cada 60s</div>
+            </div>
+          </div>
+
+          <div id="masterLinkMsg" class="master-alert" style="display: none;"></div>
+        </div>
+      </section>
+
+      <!-- Métricas Globais ou da Campanha Selecionada -->
+      <section class="metrics-grid">
+        <div class="metric-card">
+          <div class="metric-header">
+            <span class="metric-label">Total de Grupos</span>
+            <span class="metric-icon-wrap icon-purple">👥</span>
+          </div>
+          <div class="metric-value" id="metricTotal">0</div>
+          <div class="metric-sub">Sincronizados das campanhas</div>
+        </div>
+
+        <div class="metric-card">
+          <div class="metric-header">
+            <span class="metric-label">Links Ativos (OK)</span>
+            <span class="metric-icon-wrap icon-green">✅</span>
+          </div>
+          <div class="metric-value text-success" id="metricValid">0</div>
+          <div class="metric-sub">Respondendo com sucesso</div>
+        </div>
+
+        <div class="metric-card">
+          <div class="metric-header">
+            <span class="metric-label">Revogados Detectados</span>
+            <span class="metric-icon-wrap icon-red">🚨</span>
+          </div>
+          <div class="metric-value text-danger" id="metricRevoked">0</div>
+          <div class="metric-sub">Links inválidos identificados</div>
+        </div>
+
+        <div class="metric-card">
+          <div class="metric-header">
+            <span class="metric-label">Links Recuperados</span>
+            <span class="metric-icon-wrap icon-blue">🔄</span>
+          </div>
+          <div class="metric-value text-info" id="metricRecovered">0</div>
+          <div class="metric-sub">Novos links gerados pelo SendFlow</div>
+        </div>
+      </section>
+
+      <!-- Layout Principal: Tabela de Grupos + Sidebar -->
+      <main class="dashboard-grid">
+        <!-- Coluna Principal: Grupos -->
+        <section class="card panel-groups">
+          <div class="card-header">
+            <div class="card-title-group">
+              <h2 class="card-title">Grupos de WhatsApp</h2>
+              <span class="badge" id="groupsCountBadge">0 grupos</span>
+            </div>
+            <div class="table-actions">
+              <input type="text" id="filterInput" class="search-input" placeholder="Buscar por grupo, campanha ou ID..." />
+            </div>
+          </div>
+
+          <div class="table-container">
+            <table class="data-table">
+              <thead>
+                <tr>
+                  <th>Campanha</th>
+                  <th>Grupo</th>
+                  <th>Link de Convite</th>
+                  <th>Status</th>
+                  <th>Participantes</th>
+                  <th>Última Checagem</th>
+                  <th class="text-right">Ações</th>
+                </tr>
+              </thead>
+              <tbody id="groupsTableBody">
+                <tr>
+                  <td colspan="7" class="text-center py-6 text-muted">
+                    Nenhum grupo carregado ainda. Aguardando primeira verificação...
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </section>
+
+        <!-- Coluna Lateral: Conexão WhatsApp, Segurança da API, Testador Rápido e Logs -->
+        <div class="sidebar-panels">
+          <!-- Widget de Conexão WhatsApp Oficial (Pairing Code) -->
+          <section class="card panel-whatsapp" id="panelWhatsapp">
+            <div class="card-header">
+              <div class="card-title-group">
+                <h2 class="card-title">📱 Conexão WhatsApp (Protocolo Oficial)</h2>
+                <span id="waBadgeStatus" class="master-badge badge-unconfigured">● Desconectado</span>
+              </div>
+            </div>
+            <div class="whatsapp-body">
+              <!-- Estado Conectado -->
+              <div id="waConnectedState" style="display: none;">
+                <div class="wa-connected-box">
+                  <div class="wa-connected-icon">🟢</div>
+                  <div class="wa-connected-info">
+                    <div class="wa-connected-title font-bold">WhatsApp Conectado</div>
+                    <div class="wa-connected-number mono" id="waConnectedNumber">+55 (XX) XXXXX-XXXX</div>
+                    <div class="wa-connected-sub text-muted text-sm">Verificação 100% precisa e contagem de membros ativas.</div>
+                  </div>
+                </div>
+                <div class="wa-actions-row">
+                  <button id="waDisconnectBtn" class="btn btn-secondary btn-sm text-danger">Desconectar Aparelho</button>
+                </div>
+              </div>
+
+              <!-- Estado Desconectado / Gerar Pairing Code -->
+              <div id="waDisconnectedState">
+                <p class="text-muted text-sm">
+                  Conecte um número de apoio via <strong>Código de 8 dígitos</strong> para ter 100% de certeza e contagem de membros em tempo real:
+                </p>
+                <form id="waPairingForm" class="wa-form">
+                  <div class="wa-input-group">
+                    <input type="tel" id="waPhoneInput" class="form-input mono" placeholder="5511999999999 (DDI+DDD+Num)" required />
+                    <button type="submit" id="waGenerateCodeBtn" class="btn btn-primary btn-sm">Gerar Código</button>
+                  </div>
+                </form>
+
+                <!-- Caixa do Código Gerado -->
+                <div id="waPairingCodeBox" class="wa-code-box" style="display: none;">
+                  <div class="wa-code-header">
+                    <span class="text-sm font-bold">Código de Pareamento:</span>
+                    <button id="waCopyCodeBtn" class="btn-ghost-sm" title="Copiar código">📋 Copiar</button>
+                  </div>
+                  <div class="wa-code-display mono" id="waCodeDisplay">---- - ----</div>
+                  <div class="wa-code-instructions text-sm">
+                    <div class="font-bold mb-1">Como conectar no seu celular:</div>
+                    <ol class="wa-steps-list">
+                      <li>Abra o WhatsApp no celular</li>
+                      <li>Toque em <strong>Aparelhos Conectados</strong></li>
+                      <li>Toque em <strong>Conectar com número de telefone</strong></li>
+                      <li>Digite o código acima</li>
+                    </ol>
+                  </div>
+                  <div class="wa-code-timer text-sm text-muted" id="waCodeTimer">Aguardando confirmação no celular...</div>
+                </div>
+
+                <!-- Alternativa QR Code -->
+                <div id="waQrCodeBox" class="wa-qr-box" style="display: none; text-align: center; margin-top: 14px; padding-top: 12px; border-top: 1px dashed rgba(255,255,255,0.1);">
+                  <div class="text-sm font-bold mb-2" style="color: #4ade80;">Ou se preferir, escaneie o QR Code:</div>
+                  <img id="waQrCodeImg" src="" alt="QR Code WhatsApp" style="max-width: 180px; border-radius: 8px; border: 4px solid #fff; margin: 0 auto; display: block;" />
+                </div>
+              </div>
+            </div>
+          </section>
+
+          <!-- Widget de Segurança da API SendFlow -->
+          <section class="card panel-safety">
+            <div class="card-header">
+              <h2 class="card-title">🛡️ Proteção de API SendFlow</h2>
+            </div>
+            <div class="safety-body">
+              <div class="safety-meter-wrap">
+                <div class="safety-label-row">
+                  <span>Ações na janela de 15 min:</span>
+                  <strong id="safetyCountText" class="mono font-bold">0 / 4</strong>
+                </div>
+                <div class="safety-bar">
+                  <div id="safetyBarFill" class="safety-fill" style="width: 0%;"></div>
+                </div>
+              </div>
+              <p class="safety-desc text-muted text-sm">
+                Regra rígida de segurança: o SendFlow permite no máximo 4 atualizações a cada 15 min por conta. O sistema enfileira chamadas automaticamente para nunca derrubar sua chave de API.
               </p>
-              <form id="waPairingForm" class="wa-form">
-                <div class="wa-input-group">
-                  <input type="tel" id="waPhoneInput" class="form-input mono" placeholder="5511999999999 (DDI+DDD+Num)" required />
-                  <button type="submit" id="waGenerateCodeBtn" class="btn btn-primary btn-sm">Gerar Código</button>
-                </div>
-              </form>
-
-              <!-- Caixa do Código Gerado -->
-              <div id="waPairingCodeBox" class="wa-code-box" style="display: none;">
-                <div class="wa-code-header">
-                  <span class="text-sm font-bold">Código de Pareamento:</span>
-                  <button id="waCopyCodeBtn" class="btn-ghost-sm" title="Copiar código">📋 Copiar</button>
-                </div>
-                <div class="wa-code-display mono" id="waCodeDisplay">---- - ----</div>
-                <div class="wa-code-instructions text-sm">
-                  <div class="font-bold mb-1">Como conectar no seu celular:</div>
-                  <ol class="wa-steps-list">
-                    <li>Abra o WhatsApp no celular</li>
-                    <li>Toque em <strong>Aparelhos Conectados</strong></li>
-                    <li>Toque em <strong>Conectar com número de telefone</strong></li>
-                    <li>Digite o código acima</li>
-                  </ol>
-                </div>
-                <div class="wa-code-timer text-sm text-muted" id="waCodeTimer">Aguardando confirmação no celular...</div>
-              </div>
-
-              <!-- Alternativa QR Code -->
-              <div id="waQrCodeBox" class="wa-qr-box" style="display: none; text-align: center; margin-top: 14px; padding-top: 12px; border-top: 1px dashed rgba(255,255,255,0.1);">
-                <div class="text-sm font-bold mb-2" style="color: #4ade80;">Ou se preferir, escaneie o QR Code:</div>
-                <img id="waQrCodeImg" src="" alt="QR Code WhatsApp" style="max-width: 180px; border-radius: 8px; border: 4px solid #fff; margin: 0 auto; display: block;" />
+              <div id="safetyCooldownAlert" class="safety-cooldown-info" style="display: none;">
+                ⏳ Cooldown ativo: <strong id="safetyCooldownTime">--</strong>
               </div>
             </div>
-          </div>
-        </section>
+          </section>
 
-        <!-- Widget de Segurança da API SendFlow -->
-        <section class="card panel-safety">
-          <div class="card-header">
-            <h2 class="card-title">🛡️ Proteção de API SendFlow</h2>
-          </div>
-          <div class="safety-body">
-            <div class="safety-meter-wrap">
-              <div class="safety-label-row">
-                <span>Ações na janela de 15 min:</span>
-                <strong id="safetyCountText" class="mono font-bold">0 / 4</strong>
+          <!-- Testador Rápido de Link -->
+          <section class="card panel-quicktest">
+            <div class="card-header">
+              <h2 class="card-title">🧪 Testador Rápido de Link</h2>
+            </div>
+            <div class="quicktest-body">
+              <p class="text-muted text-sm">Cole qualquer link ou código de grupo do WhatsApp para testar a resposta imediatamente:</p>
+              <div class="quicktest-form">
+                <input type="text" id="quickTestInput" class="text-input" placeholder="https://chat.whatsapp.com/... ou código" />
+                <button id="quickTestBtn" class="btn btn-secondary">Testar</button>
               </div>
-              <div class="safety-bar">
-                <div id="safetyBarFill" class="safety-fill" style="width: 0%;"></div>
+              <div id="quickTestResult" class="quicktest-result" style="display: none;"></div>
+            </div>
+          </section>
+
+          <!-- Console de Logs ao Vivo -->
+          <section class="card panel-logs">
+            <div class="card-header">
+              <div class="card-title-group">
+                <h2 class="card-title">🖥️ Console de Atividades ao Vivo</h2>
+                <span class="live-indicator">LIVE</span>
               </div>
+              <button id="clearLogsBtn" class="btn-ghost-sm">Limpar</button>
             </div>
-            <p class="safety-desc text-muted text-sm">
-              Regra rígida de segurança: o SendFlow permite no máximo 4 atualizações a cada 15 min por conta. O sistema enfileira chamadas automaticamente para nunca derrubar sua chave de API.
-            </p>
-            <div id="safetyCooldownAlert" class="safety-cooldown-info" style="display: none;">
-              ⏳ Cooldown ativo: <strong id="safetyCooldownTime">--</strong>
+            <div id="logsTerminal" class="logs-terminal">
+              <div class="log-entry log-info">[SISTEMA] Inicializando monitor Multi-Campanhas SendFlow Guard...</div>
             </div>
-          </div>
-        </section>
+          </section>
+        </div>
+      </main>
+    </div>
 
-        <!-- Testador Rápido de Link -->
-        <section class="card panel-quicktest">
-          <div class="card-header">
-            <h2 class="card-title">🧪 Testador Rápido de Link</h2>
-          </div>
-          <div class="quicktest-body">
-            <p class="text-muted text-sm">Cole qualquer link ou código de grupo do WhatsApp para testar a resposta imediatamente:</p>
-            <div class="quicktest-form">
-              <input type="text" id="quickTestInput" class="text-input" placeholder="https://chat.whatsapp.com/... ou código" />
-              <button id="quickTestBtn" class="btn btn-secondary">Testar</button>
-            </div>
-            <div id="quickTestResult" class="quicktest-result" style="display: none;"></div>
-          </div>
-        </section>
-
-        <!-- Console de Logs ao Vivo -->
-        <section class="card panel-logs">
-          <div class="card-header">
-            <div class="card-title-group">
-              <h2 class="card-title">🖥️ Console de Atividades ao Vivo</h2>
-              <span class="live-indicator">LIVE</span>
-            </div>
-            <button id="clearLogsBtn" class="btn-ghost-sm">Limpar</button>
-          </div>
-          <div id="logsTerminal" class="logs-terminal">
-            <div class="log-entry log-info">[SISTEMA] Inicializando monitor Multi-Campanhas SendFlow Guard...</div>
-          </div>
-        </section>
+    <!-- ================================================================= -->
+    <!-- MÓDULO 2: ANTI-HACKER BRABO (MOTOR AEGIS 8.2 MULTI-AGENTES)       -->
+    <!-- ================================================================= -->
+    <div id="antihackerView" class="module-view" style="display: none;">
+      <!-- Ribbon de Status Tático -->
+      <div class="status-ribbon aegis-ribbon">
+        <div class="ribbon-item">
+          <span class="dot" id="aegisStateDot" style="background-color: #10b981;"></span>
+          <span id="aegisStateText" class="font-bold">Defesa Aegis 8.2 Ativa</span>
+        </div>
+        <div class="ribbon-item">
+          <span class="text-muted">Snipers Armados:</span>
+          <strong id="aegisSnipersCountText" class="mono font-bold text-success">0 / 0</strong>
+        </div>
+        <div class="ribbon-item">
+          <span class="text-muted">Espiões Vigiando:</span>
+          <strong id="aegisEspioesCountText" class="mono font-bold text-info">0 / 0</strong>
+        </div>
+        <div class="ribbon-item">
+          <span class="text-muted">Whitelist de Admins:</span>
+          <strong id="aegisWhitelistCountText" class="mono font-bold">0</strong>
+        </div>
+        <div class="ribbon-item">
+          <span class="text-muted">Invasores na Blacklist:</span>
+          <strong id="aegisBlacklistCountText" class="mono font-bold text-danger">0</strong>
+        </div>
       </div>
-    </main>
+
+      <!-- Métricas Táticas do Anti-Hacker -->
+      <section class="metrics-grid aegis-metrics">
+        <div class="metric-card">
+          <div class="metric-header">
+            <span class="metric-label">Mensagens de Invasores Apagadas</span>
+            <span class="metric-icon-wrap icon-red">💥</span>
+          </div>
+          <div class="metric-value text-danger" id="aegisMetricDeleted">0</div>
+          <div class="metric-sub">Eliminadas instantaneamente (Delete for everyone)</div>
+        </div>
+
+        <div class="metric-card">
+          <div class="metric-header">
+            <span class="metric-label">Banimentos Totais (Ordem 66)</span>
+            <span class="metric-icon-wrap icon-purple">🌍</span>
+          </div>
+          <div class="metric-value text-purple" id="aegisMetricBanned">0</div>
+          <div class="metric-sub">Invasores expurgados de toda a rede</div>
+        </div>
+
+        <div class="metric-card">
+          <div class="metric-header">
+            <span class="metric-label">Hackers Bloqueados</span>
+            <span class="metric-icon-wrap icon-orange">🔒</span>
+          </div>
+          <div class="metric-value text-warning" id="aegisMetricBlacklist">0</div>
+          <div class="metric-sub">Indexados na Blacklist Permanente</div>
+        </div>
+
+        <div class="metric-card">
+          <div class="metric-header">
+            <span class="metric-label">Grupos Vigiados & Protegidos</span>
+            <span class="metric-icon-wrap icon-green">🛡️</span>
+          </div>
+          <div class="metric-value text-success" id="aegisMetricGroups">0</div>
+          <div class="metric-sub">Sob cobertura da frota Aegis</div>
+        </div>
+      </section>
+
+      <!-- Layout do Anti-Hacker: Frota de Agentes + Painel Lateral -->
+      <main class="dashboard-grid aegis-grid">
+        <!-- Coluna Principal: Frota de Snipers e Espiões -->
+        <div class="aegis-fleet-column">
+          <!-- Seção de Snipers -->
+          <section class="card panel-fleet">
+            <div class="card-header">
+              <div class="card-title-group">
+                <span class="fleet-icon">🎯</span>
+                <div>
+                  <h2 class="card-title">Frota de Snipers (Artilharia & Exclusão)</h2>
+                  <div class="card-sub text-muted text-sm">Contas administradoras que apagam mensagens e executam a Ordem 66</div>
+                </div>
+              </div>
+              <span class="badge badge-sniper" id="snipersFleetBadge">0 Conectados</span>
+            </div>
+            <div class="fleet-cards-grid" id="snipersGrid">
+              <!-- Cards de Snipers inseridos via JS -->
+            </div>
+          </section>
+
+          <!-- Seção de Espiões -->
+          <section class="card panel-fleet" style="margin-top: 24px;">
+            <div class="card-header">
+              <div class="card-title-group">
+                <span class="fleet-icon">🕵️</span>
+                <div>
+                  <h2 class="card-title">Frota de Espiões (Vigilância Passiva & Radar)</h2>
+                  <div class="card-sub text-muted text-sm">Contas infiltradas nos grupos em silêncio que alertam os Snipers</div>
+                </div>
+              </div>
+              <span class="badge badge-spotter" id="espioesFleetBadge">0 Conectados</span>
+            </div>
+            <div class="fleet-cards-grid" id="espioesGrid">
+              <!-- Cards de Espiões inseridos via JS -->
+            </div>
+          </section>
+        </div>
+
+        <!-- Coluna Lateral: Configurações Táticas, Blacklist & Console -->
+        <div class="sidebar-panels aegis-sidebar">
+          <!-- Card de Configurações Táticas & Whitelist -->
+          <section class="card panel-aegis-config">
+            <div class="card-header">
+              <h2 class="card-title">⚙️ Configurações Táticas Aegis</h2>
+            </div>
+            <div class="aegis-config-body">
+              <!-- Whitelist de Administradores -->
+              <div class="form-group">
+                <label class="form-label">
+                  👑 Whitelist de Administradores Autorizados
+                  <span class="text-muted text-sm">(Nunca são banidos)</span>
+                </label>
+                <div class="whitelist-chips" id="whitelistChipsContainer">
+                  <!-- Chips de números autorizados -->
+                </div>
+                <div class="whitelist-input-row">
+                  <input type="tel" id="addWhitelistInput" class="form-input mono" placeholder="5511999999999 (com DDI+DDD)" />
+                  <button id="addWhitelistBtn" class="btn btn-secondary btn-sm">+ Adicionar</button>
+                </div>
+              </div>
+
+              <!-- Grupo de Alertas C2 -->
+              <div class="form-group mt-3">
+                <label class="form-label" for="aegisGrupoAlertasInput">
+                  📡 ID do Grupo de Alertas (C2)
+                </label>
+                <div class="input-action-row">
+                  <input type="text" id="aegisGrupoAlertasInput" class="form-input mono" placeholder="120363xxx@g.us" />
+                  <button id="saveAegisAlertGroupBtn" class="btn btn-primary btn-sm">Salvar</button>
+                </div>
+                <span class="form-hint">Use <code>!idgrupo</code> dentro do grupo desejado no WhatsApp para obter o ID.</span>
+              </div>
+
+              <!-- Quantidade de Snipers e Espiões -->
+              <div class="form-row mt-3">
+                <div class="form-group col-half">
+                  <label class="form-label" for="aegisQtdSnipersSelect">Qtd. Snipers</label>
+                  <select id="aegisQtdSnipersSelect" class="form-select">
+                    <option value="1">1 Sniper</option>
+                    <option value="2">2 Snipers</option>
+                    <option value="3">3 Snipers</option>
+                    <option value="4" selected>4 Snipers</option>
+                    <option value="5">5 Snipers</option>
+                    <option value="6">6 Snipers</option>
+                    <option value="8">8 Snipers</option>
+                  </select>
+                </div>
+                <div class="form-group col-half">
+                  <label class="form-label" for="aegisQtdEspioesSelect">Qtd. Espiões</label>
+                  <select id="aegisQtdEspioesSelect" class="form-select">
+                    <option value="2">2 Espiões</option>
+                    <option value="4">4 Espiões</option>
+                    <option value="6">6 Espiões</option>
+                    <option value="9" selected>9 Espiões</option>
+                    <option value="12">12 Espiões</option>
+                    <option value="15">15 Espiões</option>
+                  </select>
+                </div>
+              </div>
+            </div>
+          </section>
+
+          <!-- Card de Blacklist -->
+          <section class="card panel-aegis-blacklist">
+            <div class="card-header">
+              <div class="card-title-group">
+                <h2 class="card-title">🔒 Blacklist Permanente</h2>
+                <span class="badge" id="blacklistCountBadge">0 invasores</span>
+              </div>
+            </div>
+            <div class="blacklist-body">
+              <div class="blacklist-search-row">
+                <input type="text" id="blacklistSearchInput" class="search-input" placeholder="Buscar invasor..." />
+                <button id="addManualBlacklistBtn" class="btn btn-danger-sm">+ Indexar</button>
+              </div>
+              <div class="blacklist-list-container" id="blacklistContainer">
+                <!-- Itens da Blacklist -->
+              </div>
+            </div>
+          </section>
+
+          <!-- Console de Interceptações Aegis ao Vivo -->
+          <section class="card panel-logs">
+            <div class="card-header">
+              <div class="card-title-group">
+                <h2 class="card-title">🛰️ Radar Tático de Interceptações</h2>
+                <span class="live-indicator">LIVE</span>
+              </div>
+              <button id="clearAegisLogsBtn" class="btn-ghost-sm">Limpar</button>
+            </div>
+            <div id="aegisLogsTerminal" class="logs-terminal aegis-terminal">
+              <div class="log-entry log-info">[AEGIS 8.2] Radar de segurança ativo e em prontidão máxima...</div>
+            </div>
+          </section>
+        </div>
+      </main>
+    </div>
   </div>
 
-  <!-- Modal de Adicionar / Editar Campanha -->
+  <!-- Modal de Adicionar / Editar Campanha (SendFlow) -->
   <div id="campaignModal" class="modal-overlay" style="display: none;">
     <div class="modal-card">
       <div class="modal-header">

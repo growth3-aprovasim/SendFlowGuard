@@ -1,6 +1,7 @@
 // Frontend JavaScript para o Dashboard Multi-Campanhas SendFlow Guard
 
 let state = {
+  currentModule: 'sendflow', // 'sendflow' | 'antihacker'
   isRunning: false,
   nextCheckTime: null,
   schedulerActive: true,
@@ -12,9 +13,21 @@ let state = {
   cooldown: null,
   stats: {},
   filterQuery: '',
+  aegis: {
+    status: null,
+    blacklistFilter: '',
+    pairingTimers: {},
+  },
 };
 
 let countdownInterval = null;
+
+// Elementos DOM - Navegação de Módulos
+const navModuleSendFlow = document.getElementById('navModuleSendFlow');
+const navModuleAntiHacker = document.getElementById('navModuleAntiHacker');
+const sendflowView = document.getElementById('sendflowView');
+const antihackerView = document.getElementById('antihackerView');
+const sendflowHeaderActions = document.getElementById('sendflowHeaderActions');
 
 // Elementos DOM
 const apiQuotaBadge = document.getElementById('apiQuotaBadge');
@@ -111,6 +124,14 @@ document.addEventListener('DOMContentLoaded', () => {
 });
 
 function setupEventListeners() {
+  // Alternância de Módulos (SendFlow Guard / Anti-Hacker Brabo)
+  if (navModuleSendFlow) {
+    navModuleSendFlow.addEventListener('click', () => switchModule('sendflow'));
+  }
+  if (navModuleAntiHacker) {
+    navModuleAntiHacker.addEventListener('click', () => switchModule('antihacker'));
+  }
+
   // Disparar Verificação Global Agora
   verifyNowBtn.addEventListener('click', async () => {
     try {
@@ -284,6 +305,103 @@ function setupEventListeners() {
       }
     });
   }
+
+  // ==========================================
+  // EVENTOS DO ANTI-HACKER BRABO (AEGIS 8.2)
+  // ==========================================
+  const addWhitelistBtn = document.getElementById('addWhitelistBtn');
+  const addWhitelistInput = document.getElementById('addWhitelistInput');
+  if (addWhitelistBtn && addWhitelistInput) {
+    addWhitelistBtn.addEventListener('click', () => handleAddWhitelist());
+    addWhitelistInput.addEventListener('keypress', (e) => {
+      if (e.key === 'Enter') handleAddWhitelist();
+    });
+  }
+
+  const saveAegisAlertGroupBtn = document.getElementById('saveAegisAlertGroupBtn');
+  const aegisGrupoAlertasInput = document.getElementById('aegisGrupoAlertasInput');
+  if (saveAegisAlertGroupBtn && aegisGrupoAlertasInput) {
+    saveAegisAlertGroupBtn.addEventListener('click', async () => {
+      try {
+        const val = aegisGrupoAlertasInput.value.trim();
+        saveAegisAlertGroupBtn.disabled = true;
+        saveAegisAlertGroupBtn.textContent = 'Salvando...';
+        const res = await fetch('/api/antihacker/config', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ grupoAlertas: val }),
+        });
+        const data = await res.json();
+        saveAegisAlertGroupBtn.disabled = false;
+        saveAegisAlertGroupBtn.textContent = 'Salvar';
+        if (data.success) {
+          alert('Grupo de Alertas C2 salvo com sucesso!');
+          fetchAntiHackerStatus();
+        } else {
+          alert(data.error || 'Erro ao salvar grupo de alertas.');
+        }
+      } catch (err) {
+        saveAegisAlertGroupBtn.disabled = false;
+        saveAegisAlertGroupBtn.textContent = 'Salvar';
+        alert('Erro ao conectar: ' + err.message);
+      }
+    });
+  }
+
+  const aegisQtdSnipersSelect = document.getElementById('aegisQtdSnipersSelect');
+  if (aegisQtdSnipersSelect) {
+    aegisQtdSnipersSelect.addEventListener('change', async () => {
+      try {
+        const val = parseInt(aegisQtdSnipersSelect.value, 10);
+        await fetch('/api/antihacker/config', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ qtdSnipers: val }),
+        });
+        fetchAntiHackerStatus();
+      } catch (err) {
+        console.error('Erro ao atualizar qtd snipers:', err);
+      }
+    });
+  }
+
+  const aegisQtdEspioesSelect = document.getElementById('aegisQtdEspioesSelect');
+  if (aegisQtdEspioesSelect) {
+    aegisQtdEspioesSelect.addEventListener('change', async () => {
+      try {
+        const val = parseInt(aegisQtdEspioesSelect.value, 10);
+        await fetch('/api/antihacker/config', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ qtdEspioes: val }),
+        });
+        fetchAntiHackerStatus();
+      } catch (err) {
+        console.error('Erro ao atualizar qtd espiões:', err);
+      }
+    });
+  }
+
+  const blacklistSearchInput = document.getElementById('blacklistSearchInput');
+  if (blacklistSearchInput) {
+    blacklistSearchInput.addEventListener('input', (e) => {
+      state.aegis.blacklistFilter = e.target.value.toLowerCase().trim();
+      renderAntiHackerBlacklist();
+    });
+  }
+
+  const addManualBlacklistBtn = document.getElementById('addManualBlacklistBtn');
+  if (addManualBlacklistBtn) {
+    addManualBlacklistBtn.addEventListener('click', () => handleAddManualBlacklist());
+  }
+
+  const clearAegisLogsBtn = document.getElementById('clearAegisLogsBtn');
+  const aegisLogsTerminal = document.getElementById('aegisLogsTerminal');
+  if (clearAegisLogsBtn && aegisLogsTerminal) {
+    clearAegisLogsBtn.addEventListener('click', () => {
+      aegisLogsTerminal.innerHTML = '<div class="log-entry log-info">[RADAR LIMPO]</div>';
+    });
+  }
 }
 
 // Busca status da API
@@ -401,6 +519,9 @@ async function fetchStatus() {
     renderMasterLink(data.masterLink);
     renderGroupsTable();
     renderLogs(state.logs);
+
+    // Atualiza dados do Anti-Hacker
+    fetchAntiHackerStatus();
   } catch (err) {
     console.error('Erro ao atualizar status:', err);
   }
@@ -938,3 +1059,472 @@ function escapeHtml(str) {
     .replace(/"/g, '&quot;')
     .replace(/'/g, '&#039;');
 }
+
+// =========================================================================
+// MÓDULO 2: CONTROLADOR DO MOTOR ANTI-HACKER BRABO (AEGIS 8.2)
+// =========================================================================
+
+// Alternância entre SendFlow Guard e Anti-Hacker
+function switchModule(moduleName) {
+  state.currentModule = moduleName;
+
+  if (moduleName === 'antihacker') {
+    if (navModuleAntiHacker) navModuleAntiHacker.classList.add('active');
+    if (navModuleSendFlow) navModuleSendFlow.classList.remove('active');
+    if (sendflowView) sendflowView.style.display = 'none';
+    if (antihackerView) antihackerView.style.display = 'block';
+    if (sendflowHeaderActions) sendflowHeaderActions.style.display = 'none';
+    fetchAntiHackerStatus();
+  } else {
+    if (navModuleSendFlow) navModuleSendFlow.classList.add('active');
+    if (navModuleAntiHacker) navModuleAntiHacker.classList.remove('active');
+    if (sendflowView) sendflowView.style.display = 'block';
+    if (antihackerView) antihackerView.style.display = 'none';
+    if (sendflowHeaderActions) sendflowHeaderActions.style.display = 'flex';
+  }
+}
+
+// Busca status do Anti-Hacker
+async function fetchAntiHackerStatus() {
+  try {
+    const res = await fetch('/api/antihacker/status');
+    const json = await res.json();
+    if (!json.success || !json.data) return;
+
+    state.aegis.status = json.data;
+    renderAntiHacker(json.data);
+  } catch (err) {
+    console.error('Erro ao buscar status do Anti-Hacker:', err);
+  }
+}
+
+// Renderiza todos os blocos do Anti-Hacker
+function renderAntiHacker(data) {
+  if (!data) return;
+
+  const cfg = data.config || {};
+  const stats = data.stats || {};
+  const snipers = data.snipers || [];
+  const espioes = data.espioes || [];
+  const blacklist = data.blacklist || [];
+
+  // Ribbon de Status Tático
+  const aegisStateDot = document.getElementById('aegisStateDot');
+  const aegisStateText = document.getElementById('aegisStateText');
+  const aegisSnipersCountText = document.getElementById('aegisSnipersCountText');
+  const aegisEspioesCountText = document.getElementById('aegisEspioesCountText');
+  const aegisWhitelistCountText = document.getElementById('aegisWhitelistCountText');
+  const aegisBlacklistCountText = document.getElementById('aegisBlacklistCountText');
+
+  const connectedSnipers = snipers.filter(s => s.status === 'READY').length;
+  const connectedEspioes = espioes.filter(e => e.status === 'READY').length;
+  const totalSnipersTarget = cfg.qtdSnipers || snipers.length || 4;
+  const totalEspioesTarget = cfg.qtdEspioes || espioes.length || 9;
+
+  if (aegisSnipersCountText) aegisSnipersCountText.textContent = `${connectedSnipers} / ${totalSnipersTarget}`;
+  if (aegisEspioesCountText) aegisEspioesCountText.textContent = `${connectedEspioes} / ${totalEspioesTarget}`;
+  if (aegisWhitelistCountText) aegisWhitelistCountText.textContent = (cfg.whitelist || []).length;
+  if (aegisBlacklistCountText) aegisBlacklistCountText.textContent = blacklist.length;
+
+  if (aegisStateDot && aegisStateText) {
+    if (connectedSnipers > 0 || connectedEspioes > 0) {
+      aegisStateDot.className = 'dot';
+      aegisStateDot.style.backgroundColor = '#10b981';
+      aegisStateText.textContent = `Defesa Aegis 8.2 Ativa (${connectedSnipers + connectedEspioes} Agentes)`;
+    } else {
+      aegisStateDot.className = 'dot paused';
+      aegisStateText.textContent = 'Defesa Aegis em Standby (Nenhum Agente)';
+    }
+  }
+
+  // Badges das Frotas
+  const snipersFleetBadge = document.getElementById('snipersFleetBadge');
+  if (snipersFleetBadge) {
+    snipersFleetBadge.textContent = `${connectedSnipers} Conectados`;
+    snipersFleetBadge.className = connectedSnipers > 0 ? 'badge badge-sniper' : 'badge badge-unconfigured';
+  }
+
+  const espioesFleetBadge = document.getElementById('espioesFleetBadge');
+  if (espioesFleetBadge) {
+    espioesFleetBadge.textContent = `${connectedEspioes} Conectados`;
+    espioesFleetBadge.className = connectedEspioes > 0 ? 'badge badge-spotter' : 'badge badge-unconfigured';
+  }
+
+  // Métricas
+  const aegisMetricDeleted = document.getElementById('aegisMetricDeleted');
+  const aegisMetricBanned = document.getElementById('aegisMetricBanned');
+  const aegisMetricBlacklist = document.getElementById('aegisMetricBlacklist');
+  const aegisMetricGroups = document.getElementById('aegisMetricGroups');
+
+  if (aegisMetricDeleted) aegisMetricDeleted.textContent = stats.mensagensApagadas || 0;
+  if (aegisMetricBanned) aegisMetricBanned.textContent = stats.banimentosTotais || 0;
+  if (aegisMetricBlacklist) aegisMetricBlacklist.textContent = blacklist.length;
+  if (aegisMetricGroups) aegisMetricGroups.textContent = stats.gruposProtegidos || (data.snipers || []).reduce((acc, s) => acc + (s.groupCount || 0), 0);
+
+  // Renderizar Frotas
+  renderFleetCards('sniper', snipers, totalSnipersTarget, 'snipersGrid');
+  renderFleetCards('espiao', espioes, totalEspioesTarget, 'espioesGrid');
+
+  // Sincronizar Configurações Táticas
+  const aegisGrupoAlertasInput = document.getElementById('aegisGrupoAlertasInput');
+  if (aegisGrupoAlertasInput && document.activeElement !== aegisGrupoAlertasInput) {
+    aegisGrupoAlertasInput.value = cfg.grupoAlertas || '';
+  }
+
+  const aegisQtdSnipersSelect = document.getElementById('aegisQtdSnipersSelect');
+  if (aegisQtdSnipersSelect && document.activeElement !== aegisQtdSnipersSelect) {
+    aegisQtdSnipersSelect.value = String(cfg.qtdSnipers || 4);
+  }
+
+  const aegisQtdEspioesSelect = document.getElementById('aegisQtdEspioesSelect');
+  if (aegisQtdEspioesSelect && document.activeElement !== aegisQtdEspioesSelect) {
+    aegisQtdEspioesSelect.value = String(cfg.qtdEspioes || 9);
+  }
+
+  // Renderizar Whitelist
+  renderAntiHackerWhitelist(cfg.whitelist || []);
+
+  // Renderizar Blacklist
+  renderAntiHackerBlacklist(blacklist);
+
+  // Renderizar Logs Aegis
+  renderAegisLogs(data.logs || []);
+}
+
+// Renderiza os Cards de Agentes da Frota
+function renderFleetCards(type, activeAgents, targetCount, containerId) {
+  const container = document.getElementById(containerId);
+  if (!container) return;
+
+  const isSniper = type === 'sniper';
+  const icon = isSniper ? '🎯' : '🕵️';
+  const roleName = isSniper ? 'Sniper' : 'Espião';
+  const roleDesc = isSniper ? 'Eliminação & Ordem 66' : 'Radar & Vigilância';
+
+  let html = '';
+
+  for (let i = 1; i <= targetCount; i++) {
+    const agent = activeAgents.find(a => a.index === i) || {
+      index: i,
+      type,
+      status: 'DISCONNECTED',
+      phoneNumber: null,
+      groupCount: 0,
+      pairingCode: null,
+    };
+
+    const isConnected = agent.status === 'READY';
+    const isPairing = agent.status === 'PAIRING';
+    const statusClass = isConnected ? 'status-ready' : (isPairing ? 'status-pairing' : 'status-off');
+    const statusLabel = isConnected ? '● PRONTO' : (isPairing ? '⏳ AGUARDANDO CÓDIGO' : '○ DESCONECTADO');
+
+    html += `
+      <div class="agent-card ${isConnected ? 'agent-connected' : 'agent-disconnected'}">
+        <div class="agent-card-header">
+          <div class="agent-avatar ${isSniper ? 'avatar-sniper' : 'avatar-spotter'}">
+            <span>${icon}</span>
+          </div>
+          <div class="agent-title-info">
+            <div class="agent-name font-bold">${roleName} #${i}</div>
+            <div class="agent-role text-muted text-sm">${roleDesc}</div>
+          </div>
+          <span class="agent-status-pill ${statusClass}">${statusLabel}</span>
+        </div>
+
+        <div class="agent-card-body">
+          ${isConnected ? `
+            <div class="agent-detail-row">
+              <span class="detail-label">Número Conectado:</span>
+              <span class="mono font-bold text-success">+${escapeHtml(agent.phoneNumber || 'Ativo')}</span>
+            </div>
+            <div class="agent-detail-row">
+              <span class="detail-label">Grupos Cobertos:</span>
+              <span class="mono font-bold">${agent.groupCount || 0} grupos</span>
+            </div>
+            <div class="agent-actions mt-3">
+              <button class="btn btn-secondary btn-sm text-danger w-full" onclick="disconnectAgent('${type}', ${i})">
+                Desconectar Agente
+              </button>
+            </div>
+          ` : `
+            <div class="agent-pairing-zone">
+              ${isPairing && agent.pairingCode ? `
+                <div class="agent-code-box">
+                  <span class="agent-code-label">Código de 8 Dígitos:</span>
+                  <div class="agent-code-val mono">${escapeHtml(agent.pairingCode)}</div>
+                  <button class="btn-ghost-sm" onclick="copyAgentCode('${escapeHtml(agent.pairingCode)}')">📋 Copiar</button>
+                </div>
+                <div class="text-muted text-sm mt-1">Digite no WhatsApp: <em>Aparelhos Conectados &gt; Conectar com número</em></div>
+              ` : `
+                <p class="text-muted text-sm mb-2">Informe o número para gerar o código de conexão:</p>
+                <div class="agent-input-row">
+                  <input type="tel" id="agentInput_${type}_${i}" class="form-input mono input-sm" placeholder="5511999999999" />
+                  <button class="btn btn-primary btn-sm" onclick="requestAgentPairing('${type}', ${i})">Gerar Código</button>
+                </div>
+              `}
+            </div>
+          `}
+        </div>
+      </div>
+    `;
+  }
+
+  container.innerHTML = html;
+}
+
+// Ação: Solicitar Pairing Code para um Agente
+window.requestAgentPairing = async function(type, index) {
+  const input = document.getElementById(`agentInput_${type}_${index}`);
+  const phone = input ? input.value.trim() : '';
+
+  if (!phone) {
+    alert('Por favor, informe o número com DDI e DDD (ex: 5511999999999).');
+    return;
+  }
+
+  try {
+    const res = await fetch(`/api/antihacker/agents/${type}/${index}/pairing-code`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ phoneNumber: phone }),
+    });
+    const data = await res.json();
+    if (data.success) {
+      fetchAntiHackerStatus();
+    } else {
+      alert(`Falha ao gerar código: ${data.error || 'Erro desconhecido'}`);
+    }
+  } catch (err) {
+    alert('Erro ao conectar ao servidor: ' + err.message);
+  }
+};
+
+// Ação: Desconectar Agente
+window.disconnectAgent = async function(type, index) {
+  if (!confirm(`Deseja realmente desconectar o ${type === 'sniper' ? 'Sniper' : 'Espião'} #${index}?`)) {
+    return;
+  }
+
+  try {
+    const res = await fetch(`/api/antihacker/agents/${type}/${index}/disconnect`, {
+      method: 'POST',
+    });
+    const data = await res.json();
+    if (data.success) {
+      fetchAntiHackerStatus();
+    } else {
+      alert(`Erro ao desconectar: ${data.error || 'Falha desconhecida'}`);
+    }
+  } catch (err) {
+    alert('Erro na requisição: ' + err.message);
+  }
+};
+
+// Ação: Copiar Código de Pareamento do Agente
+window.copyAgentCode = function(code) {
+  if (!code) return;
+  navigator.clipboard.writeText(code.replace(/\s+/g, '')).then(() => {
+    alert(`Código "${code}" copiado! Abra o WhatsApp no celular e cole na tela de Conectar Aparelho.`);
+  });
+};
+
+// Renderiza chips da Whitelist
+function renderAntiHackerWhitelist(whitelist) {
+  const container = document.getElementById('whitelistChipsContainer');
+  if (!container) return;
+
+  if (!whitelist || whitelist.length === 0) {
+    container.innerHTML = '<span class="text-muted text-sm">Nenhum administrador na Whitelist. Todos que enviarem mensagens em grupos fechados serão eliminados!</span>';
+    return;
+  }
+
+  container.innerHTML = whitelist.map(num => `
+    <div class="whitelist-chip">
+      <span class="chip-admin-icon">👑</span>
+      <span class="mono font-bold">+${escapeHtml(num)}</span>
+      <button class="chip-remove-btn" title="Remover da Whitelist" onclick="removeWhitelistNumber('${escapeHtml(num)}')">&times;</button>
+    </div>
+  `).join('');
+}
+
+// Ação: Adicionar número na Whitelist
+async function handleAddWhitelist() {
+  const input = document.getElementById('addWhitelistInput');
+  if (!input) return;
+
+  const raw = input.value.replace(/\D/g, '').trim();
+  if (!raw || raw.length < 10) {
+    alert('Por favor, informe um número válido com DDI e DDD (mínimo 10 dígitos). Ex: 5511999999999');
+    return;
+  }
+
+  const currentStatus = state.aegis.status || {};
+  const currentWhitelist = (currentStatus.config && currentStatus.config.whitelist) ? [...currentStatus.config.whitelist] : [];
+
+  if (currentWhitelist.includes(raw)) {
+    alert('Este número já está na Whitelist!');
+    return;
+  }
+
+  currentWhitelist.push(raw);
+
+  try {
+    const res = await fetch('/api/antihacker/config', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ whitelist: currentWhitelist }),
+    });
+    const data = await res.json();
+    if (data.success) {
+      input.value = '';
+      fetchAntiHackerStatus();
+    } else {
+      alert(data.error || 'Erro ao salvar Whitelist.');
+    }
+  } catch (err) {
+    alert('Erro de conexão: ' + err.message);
+  }
+}
+
+// Ação: Remover número da Whitelist
+window.removeWhitelistNumber = async function(num) {
+  if (!confirm(`Remover +${num} da Whitelist? Se este número postar em grupos fechados, ele será considerado invasor.`)) {
+    return;
+  }
+
+  const currentStatus = state.aegis.status || {};
+  const currentWhitelist = (currentStatus.config && currentStatus.config.whitelist) ? currentStatus.config.whitelist.filter(n => n !== num) : [];
+
+  try {
+    const res = await fetch('/api/antihacker/config', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ whitelist: currentWhitelist }),
+    });
+    const data = await res.json();
+    if (data.success) {
+      fetchAntiHackerStatus();
+    } else {
+      alert(data.error || 'Erro ao atualizar Whitelist.');
+    }
+  } catch (err) {
+    alert('Erro de conexão: ' + err.message);
+  }
+};
+
+// Renderiza a lista de Invasores na Blacklist
+function renderAntiHackerBlacklist(blacklist) {
+  const container = document.getElementById('blacklistContainer');
+  const countBadge = document.getElementById('blacklistCountBadge');
+  if (!container) return;
+
+  const list = blacklist || (state.aegis.status ? state.aegis.status.blacklist : []) || [];
+  const filter = state.aegis.blacklistFilter || '';
+
+  const filtered = list.filter(item => {
+    const num = typeof item === 'string' ? item : (item.number || '');
+    return num.toLowerCase().includes(filter);
+  });
+
+  if (countBadge) countBadge.textContent = `${list.length} invasores`;
+
+  if (filtered.length === 0) {
+    container.innerHTML = filter
+      ? '<div class="text-center py-4 text-muted text-sm">Nenhum invasor encontrado para esta busca.</div>'
+      : '<div class="text-center py-4 text-muted text-sm">Nenhum hacker na Blacklist. Sistema 100% seguro!</div>';
+    return;
+  }
+
+  container.innerHTML = filtered.map(item => {
+    const num = typeof item === 'string' ? item : (item.number || '');
+    const dataStr = (item && item.addedAt) ? new Date(item.addedAt).toLocaleDateString('pt-BR') : 'Detectado';
+    return `
+      <div class="blacklist-item">
+        <div class="blacklist-item-info">
+          <span class="blacklist-item-icon">🚫</span>
+          <div>
+            <div class="blacklist-item-number mono font-bold text-danger">+${escapeHtml(num)}</div>
+            <div class="blacklist-item-meta text-muted text-sm">Catraca de Ferro • ${dataStr}</div>
+          </div>
+        </div>
+        <button class="btn btn-secondary btn-sm" onclick="removeBlacklistNumber('${escapeHtml(num)}')">
+          Desbanir
+        </button>
+      </div>
+    `;
+  }).join('');
+}
+
+// Ação: Indexar Manualmente um Invasor na Blacklist
+async function handleAddManualBlacklist() {
+  const raw = prompt('Digite o número do invasor com DDI e DDD para bloquear em toda a rede (ex: 5511999999999):');
+  if (!raw) return;
+
+  const num = raw.replace(/\D/g, '').trim();
+  if (!num || num.length < 8) {
+    alert('Número inválido.');
+    return;
+  }
+
+  try {
+    const res = await fetch('/api/antihacker/blacklist', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ number: num }),
+    });
+    const data = await res.json();
+    if (data.success) {
+      alert(`Invasor +${num} indexado na Blacklist com sucesso!`);
+      fetchAntiHackerStatus();
+    } else {
+      alert(data.error || 'Erro ao indexar na Blacklist.');
+    }
+  } catch (err) {
+    alert('Erro de conexão: ' + err.message);
+  }
+}
+
+// Ação: Desbanir / Remover Invasor da Blacklist
+window.removeBlacklistNumber = async function(num) {
+  if (!confirm(`Deseja remover +${num} da Blacklist? O número não será mais banido automaticamente.`)) {
+    return;
+  }
+
+  try {
+    const res = await fetch(`/api/antihacker/blacklist/${encodeURIComponent(num)}`, {
+      method: 'DELETE',
+    });
+    const data = await res.json();
+    if (data.success) {
+      fetchAntiHackerStatus();
+    } else {
+      alert(data.error || 'Erro ao remover da Blacklist.');
+    }
+  } catch (err) {
+    alert('Erro de conexão: ' + err.message);
+  }
+};
+
+// Renderiza o Console de Logs do Radar Aegis
+function renderAegisLogs(logs) {
+  const terminal = document.getElementById('aegisLogsTerminal');
+  if (!terminal || !Array.isArray(logs)) return;
+
+  if (logs.length === 0) {
+    terminal.innerHTML = '<div class="log-entry log-info">[AEGIS 8.2] Radar de segurança ativo e em prontidão máxima...</div>';
+    return;
+  }
+
+  const html = logs.map(log => {
+    let typeClass = 'log-info';
+    if (log.type === 'error' || log.type === 'ban') typeClass = 'log-danger';
+    else if (log.type === 'warn' || log.type === 'delete') typeClass = 'log-warn';
+    else if (log.type === 'success' || log.type === 'connect') typeClass = 'log-success';
+
+    return `<div class="log-entry ${typeClass}">[${escapeHtml(log.timestamp)}] ${escapeHtml(log.message)}</div>`;
+  }).join('');
+
+  terminal.innerHTML = html;
+  terminal.scrollTop = terminal.scrollHeight;
+}
+
