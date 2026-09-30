@@ -82,6 +82,8 @@ const waPairingCodeBox = document.getElementById('waPairingCodeBox');
 const waCodeDisplay = document.getElementById('waCodeDisplay');
 const waCopyCodeBtn = document.getElementById('waCopyCodeBtn');
 const waCodeTimer = document.getElementById('waCodeTimer');
+const waQrCodeBox = document.getElementById('waQrCodeBox');
+const waQrCodeImg = document.getElementById('waQrCodeImg');
 
 // Modal de Campanha
 const addCampaignBtn = document.getElementById('addCampaignBtn');
@@ -325,6 +327,12 @@ async function fetchStatus() {
         if (wa.lastPairingCode && waPairingCodeBox) {
           waPairingCodeBox.style.display = 'flex';
           if (waCodeDisplay) waCodeDisplay.textContent = wa.lastPairingCode;
+        }
+        if (wa.qrDataUrl && waQrCodeBox && waQrCodeImg) {
+          waQrCodeBox.style.display = 'block';
+          waQrCodeImg.src = wa.qrDataUrl;
+        } else if (waQrCodeBox) {
+          waQrCodeBox.style.display = 'none';
         }
       }
     }
