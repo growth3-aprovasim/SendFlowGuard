@@ -8,12 +8,16 @@ import { masterLinkMonitor } from '../services/masterLinkMonitor.js';
 import { WhatsAppChecker } from '../services/whatsappChecker.js';
 import { campaignManager } from '../services/campaignManager.js';
 import { sendflowClient } from '../services/sendflow.js';
+import { whatsappSocketService } from '../services/whatsappSocket.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 export function createServer() {
   const app = express();
+
+  // Inicia conexão automática com WhatsApp se houver credenciais salvas
+  whatsappSocketService.autoStartIfAuthExists();
 
   app.use(express.json());
   app.use(express.static(path.join(__dirname, 'public')));
@@ -27,12 +31,41 @@ export function createServer() {
       success: true,
       data: {
         ...data,
+        whatsapp: whatsappSocketService.getStatus(),
         scheduler: schedulerService.getStatus(),
         masterLink: masterLinkMonitor.getStatus(campaignId),
         configCheck,
         cooldown: sendflowClient.getUpdateCooldownStatus(),
       },
     });
+  });
+
+  // ==========================================
+  // ROTAS DE CONEXÃO WHATSAPP (PAIRING CODE)
+  // ==========================================
+  app.get('/api/whatsapp/status', (req, res) => {
+    res.json({ success: true, ...whatsappSocketService.getStatus() });
+  });
+
+  app.post('/api/whatsapp/pairing-code', async (req, res) => {
+    try {
+      const { phoneNumber } = req.body;
+      const result = await whatsappSocketService.requestPairingCode(phoneNumber);
+      verifierService.addLog('info', `[WhatsApp Protocol] Solicitado Pairing Code para +${phoneNumber}`);
+      res.json({ success: true, ...result });
+    } catch (err) {
+      res.status(400).json({ success: false, error: err.message });
+    }
+  });
+
+  app.post('/api/whatsapp/disconnect', async (req, res) => {
+    try {
+      const result = await whatsappSocketService.disconnect();
+      verifierService.addLog('warn', '[WhatsApp Protocol] WhatsApp desconectado manualmente.');
+      res.json({ success: true, ...result });
+    } catch (err) {
+      res.status(500).json({ success: false, error: err.message });
+    }
   });
 
   // ==========================================

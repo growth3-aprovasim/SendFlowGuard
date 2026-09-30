@@ -69,6 +69,20 @@ const masterLatencyText = document.getElementById('masterLatencyText');
 const masterIntervalText = document.getElementById('masterIntervalText');
 const masterLinkMsg = document.getElementById('masterLinkMsg');
 
+// Elementos WhatsApp Protocol
+const waBadgeStatus = document.getElementById('waBadgeStatus');
+const waConnectedState = document.getElementById('waConnectedState');
+const waConnectedNumber = document.getElementById('waConnectedNumber');
+const waDisconnectBtn = document.getElementById('waDisconnectBtn');
+const waDisconnectedState = document.getElementById('waDisconnectedState');
+const waPairingForm = document.getElementById('waPairingForm');
+const waPhoneInput = document.getElementById('waPhoneInput');
+const waGenerateCodeBtn = document.getElementById('waGenerateCodeBtn');
+const waPairingCodeBox = document.getElementById('waPairingCodeBox');
+const waCodeDisplay = document.getElementById('waCodeDisplay');
+const waCopyCodeBtn = document.getElementById('waCopyCodeBtn');
+const waCodeTimer = document.getElementById('waCodeTimer');
+
 // Modal de Campanha
 const addCampaignBtn = document.getElementById('addCampaignBtn');
 const campaignModal = document.getElementById('campaignModal');
@@ -197,6 +211,77 @@ function setupEventListeners() {
 
   // Submeter formulário de campanha
   campaignForm.addEventListener('submit', handleSaveCampaign);
+
+  // ==========================================
+  // EVENTOS DO WHATSAPP PROTOCOL (PAIRING CODE)
+  // ==========================================
+  if (waPairingForm) {
+    waPairingForm.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const phone = waPhoneInput.value.trim();
+      if (!phone) return;
+
+      waGenerateCodeBtn.disabled = true;
+      waGenerateCodeBtn.textContent = 'Gerando...';
+
+      try {
+        const res = await fetch('/api/whatsapp/pairing-code', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ phoneNumber: phone }),
+        });
+        const data = await res.json();
+        waGenerateCodeBtn.disabled = false;
+        waGenerateCodeBtn.textContent = 'Gerar Código';
+
+        if (data.success && data.pairingCode) {
+          waPairingCodeBox.style.display = 'flex';
+          waCodeDisplay.textContent = data.pairingCode;
+          waCodeTimer.textContent = 'Código válido por 2 minutos. Digite no WhatsApp do seu celular.';
+        } else {
+          alert(data.error || 'Erro ao gerar código de pareamento.');
+        }
+        fetchStatus();
+      } catch (err) {
+        waGenerateCodeBtn.disabled = false;
+        waGenerateCodeBtn.textContent = 'Gerar Código';
+        alert('Erro ao conectar ao servidor: ' + err.message);
+      }
+    });
+  }
+
+  if (waCopyCodeBtn) {
+    waCopyCodeBtn.addEventListener('click', () => {
+      const code = waCodeDisplay.textContent.replace(/\s+/g, '');
+      if (code && code !== '---------') {
+        navigator.clipboard.writeText(code).then(() => {
+          alert('Código copiado para a área de transferência!');
+        });
+      }
+    });
+  }
+
+  if (waDisconnectBtn) {
+    waDisconnectBtn.addEventListener('click', async () => {
+      if (!confirm('Deseja realmente desconectar o WhatsApp? O sistema voltará a usar o modo web de contingência.')) {
+        return;
+      }
+      try {
+        waDisconnectBtn.disabled = true;
+        const res = await fetch('/api/whatsapp/disconnect', { method: 'POST' });
+        const data = await res.json();
+        waDisconnectBtn.disabled = false;
+        if (data.success) {
+          alert('WhatsApp desconectado com sucesso.');
+          if (waPairingCodeBox) waPairingCodeBox.style.display = 'none';
+        }
+        fetchStatus();
+      } catch (err) {
+        waDisconnectBtn.disabled = false;
+        alert('Erro ao desconectar: ' + err.message);
+      }
+    });
+  }
 }
 
 // Busca status da API
@@ -217,6 +302,32 @@ async function fetchStatus() {
     state.masterLink = data.masterLink;
     state.cooldown = data.cooldown;
     state.stats = data.stats || {};
+    state.whatsapp = data.whatsapp;
+
+    // Atualiza Widget do WhatsApp Protocol
+    if (data.whatsapp) {
+      const wa = data.whatsapp;
+      if (wa.isConnected) {
+        if (waBadgeStatus) {
+          waBadgeStatus.className = 'master-badge badge-active';
+          waBadgeStatus.textContent = '● Conectado (Oficial)';
+        }
+        if (waConnectedState) waConnectedState.style.display = 'block';
+        if (waDisconnectedState) waDisconnectedState.style.display = 'none';
+        if (waConnectedNumber) waConnectedNumber.textContent = '+' + (wa.phoneNumber || 'Ativo');
+      } else {
+        if (waBadgeStatus) {
+          waBadgeStatus.className = 'master-badge badge-unconfigured';
+          waBadgeStatus.textContent = wa.status === 'PAIRING' ? '⏳ Pareando...' : '● Desconectado';
+        }
+        if (waConnectedState) waConnectedState.style.display = 'none';
+        if (waDisconnectedState) waDisconnectedState.style.display = 'block';
+        if (wa.lastPairingCode && waPairingCodeBox) {
+          waPairingCodeBox.style.display = 'flex';
+          if (waCodeDisplay) waCodeDisplay.textContent = wa.lastPairingCode;
+        }
+      }
+    }
 
     // Alerta de API KEY
     if (data.configCheck && !data.configCheck.isValid) {
@@ -567,8 +678,8 @@ function renderGroupsTable() {
         </td>
         <td>${statusBadge}</td>
         <td>
-          <div class="mono">${g.participantsAmount ?? '--'} part.</div>
-          <div class="text-muted text-sm">${g.full ? '🔴 Cheio' : '🟢 Aberto'}</div>
+          <div class="mono font-bold">${typeof g.size === 'number' ? `${g.size} membros` : (g.participantsAmount != null ? `${g.participantsAmount} part.` : '--')}</div>
+          <div class="text-muted text-sm">${g.full ? '🔴 Cheio' : (g.size ? '🟢 Verificado' : '🟢 Aberto')}</div>
         </td>
         <td class="mono text-muted text-sm">${lastChecked}</td>
         <td>

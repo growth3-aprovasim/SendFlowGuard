@@ -4,6 +4,8 @@
  * variações de ordem em meta-tags HTML, oscilações de rede e rate-limits temporários).
  */
 
+import { whatsappSocketService } from './whatsappSocket.js';
+
 export class WhatsAppChecker {
   // Cache em memória para evitar flood de requisições em links já confirmados ativos
   static _cache = new Map();
@@ -459,10 +461,30 @@ export class WhatsAppChecker {
       }
     }
 
-    // 2. Primeira Passada de Tiers
+    // 2. MOTOR PRINCIPAL: Se o WhatsApp Protocol Socket estiver conectado, consulta 100% oficial
+    const socketStatus = whatsappSocketService.getStatus();
+    if (socketStatus.isConnected) {
+      try {
+        const socketResult = await whatsappSocketService.checkInvite(inviteCode);
+        // Se deu uma resposta definitiva (válido ou revogado), retorna imediatamente
+        if (!socketResult.isTemporaryError) {
+          if (socketResult.isValid && socketResult.title) {
+            this._cache.set(inviteCode, {
+              data: socketResult,
+              expiresAt: Date.now() + this.CACHE_TTL_MS,
+            });
+          }
+          return socketResult;
+        }
+      } catch (err) {
+        // Se der qualquer exceção no socket, segue para o motor HTTP de contingência
+      }
+    }
+
+    // 3. MOTOR DE CONTINGÊNCIA: HTTP Crawler Multi-Tier
     let result = await this._executeTiers(url, inviteCode, startTime);
 
-    // 3. Auto-Retry Inteligente: Se caiu em erro temporário (WAF / empty response / rate-limit)
+    // 4. Auto-Retry Inteligente: Se caiu em erro temporário (WAF / empty response / rate-limit)
     if (result.isTemporaryError && !options.skipRetry) {
       // Pausa com backoff adaptativo e jitter (2.0s a 3.0s) para o WAF da Meta liberar a janela
       const backoffMs = 2000 + Math.floor(Math.random() * 1000);
@@ -475,7 +497,7 @@ export class WhatsAppChecker {
       }
     }
 
-    // 4. Salvar no Cache se estiver VALID
+    // 5. Salvar no Cache se estiver VALID
     if (result.isValid && !result.isTemporaryError && result.title) {
       this._cache.set(inviteCode, {
         data: result,

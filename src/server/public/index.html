@@ -237,8 +237,66 @@
         </div>
       </section>
 
-      <!-- Coluna Lateral: Segurança da API, Testador Rápido e Logs -->
+      <!-- Coluna Lateral: Conexão WhatsApp, Segurança da API, Testador Rápido e Logs -->
       <div class="sidebar-panels">
+        <!-- Widget de Conexão WhatsApp Oficial (Pairing Code) -->
+        <section class="card panel-whatsapp" id="panelWhatsapp">
+          <div class="card-header">
+            <div class="card-title-group">
+              <h2 class="card-title">📱 Conexão WhatsApp (Protocolo Oficial)</h2>
+              <span id="waBadgeStatus" class="master-badge badge-unconfigured">● Desconectado</span>
+            </div>
+          </div>
+          <div class="whatsapp-body">
+            <!-- Estado Conectado -->
+            <div id="waConnectedState" style="display: none;">
+              <div class="wa-connected-box">
+                <div class="wa-connected-icon">🟢</div>
+                <div class="wa-connected-info">
+                  <div class="wa-connected-title font-bold">WhatsApp Conectado</div>
+                  <div class="wa-connected-number mono" id="waConnectedNumber">+55 (XX) XXXXX-XXXX</div>
+                  <div class="wa-connected-sub text-muted text-sm">Verificação 100% precisa e contagem de membros ativas.</div>
+                </div>
+              </div>
+              <div class="wa-actions-row">
+                <button id="waDisconnectBtn" class="btn btn-secondary btn-sm text-danger">Desconectar Aparelho</button>
+              </div>
+            </div>
+
+            <!-- Estado Desconectado / Gerar Pairing Code -->
+            <div id="waDisconnectedState">
+              <p class="text-muted text-sm">
+                Conecte um número de apoio via <strong>Código de 8 dígitos</strong> para ter 100% de certeza e contagem de membros em tempo real:
+              </p>
+              <form id="waPairingForm" class="wa-form">
+                <div class="wa-input-group">
+                  <input type="tel" id="waPhoneInput" class="form-input mono" placeholder="5511999999999 (DDI+DDD+Num)" required />
+                  <button type="submit" id="waGenerateCodeBtn" class="btn btn-primary btn-sm">Gerar Código</button>
+                </div>
+              </form>
+
+              <!-- Caixa do Código Gerado -->
+              <div id="waPairingCodeBox" class="wa-code-box" style="display: none;">
+                <div class="wa-code-header">
+                  <span class="text-sm font-bold">Código de Pareamento:</span>
+                  <button id="waCopyCodeBtn" class="btn-ghost-sm" title="Copiar código">📋 Copiar</button>
+                </div>
+                <div class="wa-code-display mono" id="waCodeDisplay">---- - ----</div>
+                <div class="wa-code-instructions text-sm">
+                  <div class="font-bold mb-1">Como conectar no seu celular:</div>
+                  <ol class="wa-steps-list">
+                    <li>Abra o WhatsApp no celular</li>
+                    <li>Toque em <strong>Aparelhos Conectados</strong></li>
+                    <li>Toque em <strong>Conectar com número de telefone</strong></li>
+                    <li>Digite o código acima</li>
+                  </ol>
+                </div>
+                <div class="wa-code-timer text-sm text-muted" id="waCodeTimer">Aguardando confirmação no celular...</div>
+              </div>
+            </div>
+          </div>
+        </section>
+
         <!-- Widget de Segurança da API SendFlow -->
         <section class="card panel-safety">
           <div class="card-header">
