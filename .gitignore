@@ -9,10 +9,12 @@ yarn-debug.log*
 yarn-error.log*
 .DS_Store
 
-# Baileys WhatsApp Auth Sessions (Credentials)
+# Baileys WhatsApp Auth Sessions & Local Data
 auth_info_baileys/
 auth_sniper_*
+auth_spotter_*
 auth_espiao_*
+data/
 
 # Pasta do projeto antigo (já unificado no src/)
 Anti-Hacker/

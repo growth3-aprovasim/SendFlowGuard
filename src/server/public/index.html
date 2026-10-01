@@ -22,9 +22,9 @@
         </div>
         <div>
           <div class="brand-title">
-            WhatsApp Command Center <span class="badge-version">v8.2 Suite</span>
+            Brabo Guard <span class="badge-version">v8.2 Suite</span>
           </div>
-          <div class="brand-sub">Monitor de Campanhas & Motor de Defesa Militar</div>
+          <div class="brand-sub">Monitor de Campanhas & Motor de Defesa Anti-Hacker</div>
         </div>
       </div>
 
@@ -387,6 +387,35 @@
     <!-- MÓDULO 2: ANTI-HACKER BRABO (MOTOR AEGIS 8.2 MULTI-AGENTES)       -->
     <!-- ================================================================= -->
     <div id="antihackerView" class="module-view" style="display: none;">
+      <!-- Abas de Navegação das Campanhas de Segurança Anti-Hacker -->
+      <nav class="campaign-tabs-wrapper">
+        <div class="campaign-tabs" id="aegisCampaignTabsContainer">
+          <!-- Abas inseridas via JS -->
+        </div>
+        <button id="addAegisCampaignBtn" class="btn btn-accent btn-sm">
+          <span>➕ Nova Campanha Anti-Hacker</span>
+        </button>
+      </nav>
+
+      <!-- Banner de Gestão da Campanha Anti-Hacker Selecionada -->
+      <div id="aegisCampaignHeaderBanner" class="campaign-selected-header" style="display: none;">
+        <div class="campaign-title-box">
+          <span class="campaign-badge-icon">🛡️</span>
+          <div>
+            <div class="flex items-center gap-2">
+              <h2 id="aegisSelectedCampTitle" class="campaign-title">Campanha</h2>
+              <span id="aegisCampStatusBadge" class="master-badge badge-operational">Ativa</span>
+            </div>
+            <div id="aegisSelectedCampSub" class="campaign-sub mono text-muted">ID: ah_xxx • 2 Snipers • 4 Espiões</div>
+          </div>
+        </div>
+        <div class="campaign-actions-box">
+          <button id="toggleAegisCampBtn" class="btn btn-secondary btn-sm">⏸️ Pausar</button>
+          <button id="editAegisCampBtn" class="btn btn-secondary btn-sm">✏️ Editar</button>
+          <button id="deleteAegisCampBtn" class="btn btn-danger-sm">🗑️ Excluir</button>
+        </div>
+      </div>
+
       <!-- Ribbon de Status Tático -->
       <div class="status-ribbon aegis-ribbon">
         <div class="ribbon-item">
@@ -653,6 +682,75 @@
         <div class="modal-actions">
           <button type="button" id="cancelModalBtn" class="btn btn-secondary">Cancelar</button>
           <button type="submit" id="saveCampaignBtn" class="btn btn-accent">Salvar Campanha</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- Modal de Adicionar / Editar Campanha Anti-Hacker (Aegis 8.2) -->
+  <div id="aegisCampaignModal" class="modal-overlay" style="display: none;">
+    <div class="modal-card">
+      <div class="modal-header">
+        <h3 id="aegisModalTitle" class="modal-title">Nova Campanha Anti-Hacker</h3>
+        <button id="closeAegisModalBtn" class="modal-close-btn">&times;</button>
+      </div>
+      <form id="aegisCampaignForm" class="modal-form">
+        <input type="hidden" id="formAegisCampaignId" value="" />
+
+        <div class="form-group">
+          <label class="form-label" for="formAegisName">Nome da Campanha de Segurança <span class="text-danger">*</span></label>
+          <input type="text" id="formAegisName" class="form-input" placeholder="Ex: Lançamento VIP Outubro" required />
+          <span class="form-hint">Nome para identificar este grupo de segurança e alertas.</span>
+        </div>
+
+        <div class="form-group">
+          <label class="form-label" for="formAegisGrupoAlertas">ID do Grupo de Alertas C2</label>
+          <input type="text" id="formAegisGrupoAlertas" class="form-input mono" placeholder="Ex: 120363xxx@g.us" />
+          <span class="form-hint">Grupo no WhatsApp onde as interceptações e invasões serão notificadas em tempo real.</span>
+        </div>
+
+        <div class="form-row">
+          <div class="form-group col-half">
+            <label class="form-label" for="formAegisQtdSnipers">Qtd. Snipers (Artilharia)</label>
+            <select id="formAegisQtdSnipers" class="form-select">
+              <option value="1">1 Sniper</option>
+              <option value="2" selected>2 Snipers</option>
+              <option value="3">3 Snipers</option>
+              <option value="4">4 Snipers</option>
+              <option value="6">6 Snipers</option>
+              <option value="8">8 Snipers</option>
+            </select>
+          </div>
+
+          <div class="form-group col-half">
+            <label class="form-label" for="formAegisQtdEspioes">Qtd. Espiões (Radar)</label>
+            <select id="formAegisQtdEspioes" class="form-select">
+              <option value="2">2 Espiões</option>
+              <option value="4" selected>4 Espiões</option>
+              <option value="6">6 Espiões</option>
+              <option value="9">9 Espiões</option>
+              <option value="12">12 Espiões</option>
+              <option value="15">15 Espiões</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="form-group">
+          <label class="form-label" for="formAegisWhitelist">Whitelist de Admins Autorizados (separados por vírgula)</label>
+          <input type="text" id="formAegisWhitelist" class="form-input mono" placeholder="5511999999999, 5521888888888" />
+          <span class="form-hint">Números com imunidade total contra expulsão e deleção nesta campanha.</span>
+        </div>
+
+        <div class="form-group form-checkbox-group">
+          <label class="checkbox-label">
+            <input type="checkbox" id="formAegisEnabled" checked />
+            <span>Manter monitoramento e defesa desta campanha ATIVADOS</span>
+          </label>
+        </div>
+
+        <div class="modal-actions">
+          <button type="button" id="cancelAegisModalBtn" class="btn btn-secondary">Cancelar</button>
+          <button type="submit" id="saveAegisCampaignBtn" class="btn btn-accent">Salvar Campanha</button>
         </div>
       </form>
     </div>

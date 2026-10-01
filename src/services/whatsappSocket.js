@@ -9,13 +9,13 @@ import pino from 'pino';
 import path from 'path';
 import fs from 'fs';
 import QRCode from 'qrcode';
-import { ROOT_DIR } from '../config.js';
+import { DATA_DIR } from '../config.js';
 import { verifierService } from './verifier.js';
 
 class WhatsAppSocketService {
   constructor() {
     this.sock = null;
-    this.authDir = path.join(ROOT_DIR, 'auth_info_baileys');
+    this.authDir = path.join(DATA_DIR, 'auth_info_baileys');
     this.status = 'DISCONNECTED'; // 'DISCONNECTED' | 'PAIRING' | 'CONNECTING' | 'CONNECTED'
     this.phoneNumber = null;
     this.lastPairingCode = null;

@@ -45,38 +45,101 @@ export function createServer() {
   });
 
   // ==========================================
-  // ROTAS DO ANTI-HACKER BRABO (AEGIS 8.2)
+  // ROTAS DO ANTI-HACKER BRABO (AEGIS 8.2) - MULTI-CAMPANHAS
   // ==========================================
   app.get('/api/antihacker/status', (req, res) => {
-    res.json({ success: true, data: antiHackerService.getStatus() });
+    const campaignId = req.query.campaignId || 'all';
+    res.json({ success: true, data: antiHackerService.getStatus(campaignId) });
   });
 
-  app.get('/api/antihacker/config', (req, res) => {
-    res.json({ success: true, config: antiHackerService.config });
+  // Listar todas as campanhas de segurança
+  app.get('/api/antihacker/campaigns', (req, res) => {
+    res.json({ success: true, campaigns: antiHackerService.getAllCampaigns() });
   });
 
-  app.post('/api/antihacker/config', (req, res) => {
+  // Criar nova campanha de segurança
+  app.post('/api/antihacker/campaigns', (req, res) => {
     try {
-      const { enabled, whitelist, qtdSnipers, qtdEspioes, grupoAlertas } = req.body;
-      if (typeof enabled === 'boolean') antiHackerService.config.enabled = enabled;
-      if (Array.isArray(whitelist)) antiHackerService.config.whitelist = whitelist;
-      if (typeof qtdSnipers === 'number') antiHackerService.config.qtdSnipers = Math.max(1, Math.min(20, qtdSnipers));
-      if (typeof qtdEspioes === 'number') antiHackerService.config.qtdEspioes = Math.max(1, Math.min(30, qtdEspioes));
-      if (typeof grupoAlertas === 'string') antiHackerService.config.grupoAlertas = grupoAlertas.trim();
-
-      antiHackerService.saveConfig();
-      antiHackerService.addLog('info', 'Configurações táticas do Anti-Hacker atualizadas.');
-      res.json({ success: true, config: antiHackerService.config });
+      const newCamp = antiHackerService.createCampaign(req.body);
+      res.status(201).json({ success: true, campaign: newCamp });
     } catch (err) {
       res.status(400).json({ success: false, error: err.message });
     }
   });
 
+  // Obter dados de uma campanha específica
+  app.get('/api/antihacker/campaigns/:id', (req, res) => {
+    const camp = antiHackerService.getCampaignById(req.params.id);
+    if (!camp) return res.status(404).json({ success: false, error: 'Campanha não encontrada.' });
+    res.json({ success: true, campaign: camp });
+  });
+
+  // Atualizar campanha de segurança
+  app.put('/api/antihacker/campaigns/:id', (req, res) => {
+    try {
+      const updated = antiHackerService.updateCampaign(req.params.id, req.body);
+      res.json({ success: true, campaign: updated });
+    } catch (err) {
+      res.status(400).json({ success: false, error: err.message });
+    }
+  });
+
+  // Excluir campanha de segurança
+  app.delete('/api/antihacker/campaigns/:id', async (req, res) => {
+    try {
+      const removed = await antiHackerService.deleteCampaign(req.params.id);
+      res.json({ success: true, campaign: removed });
+    } catch (err) {
+      res.status(400).json({ success: false, error: err.message });
+    }
+  });
+
+  // Alternar ativação de uma campanha de segurança
+  app.post('/api/antihacker/campaigns/:id/toggle', (req, res) => {
+    try {
+      const updated = antiHackerService.toggleCampaign(req.params.id);
+      res.json({ success: true, campaign: updated });
+    } catch (err) {
+      res.status(400).json({ success: false, error: err.message });
+    }
+  });
+
+  // Gerar Pairing Code para agente de uma campanha específica
+  app.post('/api/antihacker/campaigns/:campaignId/agents/:type/:index/pairing-code', async (req, res) => {
+    const { campaignId, type, index } = req.params;
+    const { phoneNumber } = req.body;
+    try {
+      const result = await antiHackerService.conectarAgente({
+        campaignId,
+        type,
+        index: parseInt(index, 10),
+        phoneNumber,
+        forceFresh: true,
+      });
+      res.json({ success: true, ...result });
+    } catch (err) {
+      res.status(400).json({ success: false, error: err.message });
+    }
+  });
+
+  // Desconectar agente de uma campanha específica
+  app.post('/api/antihacker/campaigns/:campaignId/agents/:type/:index/disconnect', async (req, res) => {
+    const { campaignId, type, index } = req.params;
+    try {
+      const result = await antiHackerService.desconectarAgente(campaignId, type, parseInt(index, 10));
+      res.json({ success: true, ...result });
+    } catch (err) {
+      res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
+  // Rotas legadas (compatibilidade)
   app.post('/api/antihacker/agents/:type/:index/pairing-code', async (req, res) => {
     const { type, index } = req.params;
     const { phoneNumber } = req.body;
     try {
       const result = await antiHackerService.conectarAgente({
+        campaignId: 'default',
         type,
         index: parseInt(index, 10),
         phoneNumber,
@@ -91,7 +154,7 @@ export function createServer() {
   app.post('/api/antihacker/agents/:type/:index/disconnect', async (req, res) => {
     const { type, index } = req.params;
     try {
-      const result = await antiHackerService.desconectarAgente(type, parseInt(index, 10));
+      const result = await antiHackerService.desconectarAgente('default', type, parseInt(index, 10));
       res.json({ success: true, ...result });
     } catch (err) {
       res.status(500).json({ success: false, error: err.message });

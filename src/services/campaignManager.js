@@ -1,9 +1,9 @@
 import fs from 'fs';
 import path from 'path';
 import crypto from 'crypto';
-import { config, ROOT_DIR } from '../config.js';
+import { config, DATA_DIR } from '../config.js';
 
-const CAMPAIGNS_FILE = path.join(ROOT_DIR, 'campaigns.json');
+const CAMPAIGNS_FILE = path.join(DATA_DIR, 'campaigns.json');
 
 export class CampaignManager {
   constructor() {

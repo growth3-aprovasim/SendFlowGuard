@@ -423,6 +423,52 @@ body {
   box-shadow: 0 0 12px rgba(99, 102, 241, 0.2);
 }
 
+/* Banner de Gestão da Campanha Selecionada */
+.campaign-selected-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 16px;
+  background: linear-gradient(135deg, rgba(30, 41, 59, 0.7) 0%, rgba(15, 23, 42, 0.9) 100%);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: var(--radius-md);
+  padding: 14px 20px;
+  margin-bottom: 20px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.25);
+}
+
+.campaign-title-box {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.campaign-badge-icon {
+  font-size: 1.8rem;
+  line-height: 1;
+}
+
+.campaign-title {
+  font-size: 1.15rem;
+  font-weight: 800;
+  color: #ffffff;
+  margin: 0;
+}
+
+.campaign-sub {
+  font-size: 0.8125rem;
+  color: var(--text-muted);
+  margin-top: 3px;
+}
+
+.campaign-actions-box {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
 /* =========================================================
    CAMPAIGN CARDS GRID (GERENCIAMENTO)
    ========================================================= */
@@ -1392,83 +1438,142 @@ body {
   transform: translateY(-2px);
 }
 
-.agent-card.connected {
+.agent-card.agent-connected {
   border-color: rgba(34, 197, 94, 0.4);
-  background: rgba(34, 197, 94, 0.03);
+  background: linear-gradient(180deg, rgba(15, 23, 42, 0.9) 0%, rgba(34, 197, 94, 0.05) 100%);
+  box-shadow: 0 4px 16px rgba(34, 197, 94, 0.08);
+}
+
+.agent-card.agent-disconnected {
+  border-color: rgba(255, 255, 255, 0.06);
+  background: rgba(15, 23, 42, 0.6);
 }
 
 .agent-card-header {
   display: flex;
-  justify-content: space-between;
   align-items: center;
+  gap: 10px;
 }
 
-.agent-title {
+.agent-avatar {
+  width: 38px;
+  height: 38px;
+  border-radius: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.25rem;
+  flex-shrink: 0;
+}
+
+.avatar-sniper {
+  background: rgba(239, 68, 68, 0.15);
+  border: 1px solid rgba(239, 68, 68, 0.3);
+}
+
+.avatar-spotter {
+  background: rgba(56, 189, 248, 0.15);
+  border: 1px solid rgba(56, 189, 248, 0.3);
+}
+
+.agent-title-info {
+  flex: 1;
+  min-width: 0;
+}
+
+.agent-name {
   font-size: 0.9375rem;
   font-weight: 700;
   color: var(--text-main);
-  display: flex;
-  align-items: center;
-  gap: 6px;
+  line-height: 1.2;
 }
 
-.agent-badge {
-  font-size: 0.7rem;
-  font-weight: 700;
-  padding: 2px 8px;
-  border-radius: var(--radius-pill);
-}
-
-.agent-badge.connected {
-  background: rgba(34, 197, 94, 0.2);
-  color: #4ade80;
-}
-
-.agent-badge.pairing {
-  background: rgba(245, 158, 11, 0.2);
-  color: #fbbf24;
-}
-
-.agent-badge.disconnected {
-  background: rgba(255, 255, 255, 0.05);
+.agent-role {
+  font-size: 0.75rem;
   color: var(--text-muted);
 }
 
-.agent-phone-box {
-  background: rgba(0, 0, 0, 0.2);
-  padding: 8px 12px;
-  border-radius: var(--radius-sm);
-  font-size: 0.8125rem;
+.agent-status-pill {
+  font-size: 0.7rem;
+  font-weight: 800;
+  padding: 3px 8px;
+  border-radius: var(--radius-pill);
+  letter-spacing: 0.03em;
+  white-space: nowrap;
+}
+
+.agent-status-pill.status-ready {
+  background: rgba(34, 197, 94, 0.2);
+  color: #4ade80;
+  border: 1px solid rgba(34, 197, 94, 0.4);
+  box-shadow: 0 0 8px rgba(34, 197, 94, 0.2);
+}
+
+.agent-status-pill.status-pairing {
+  background: rgba(245, 158, 11, 0.2);
+  color: #fbbf24;
+  border: 1px solid rgba(245, 158, 11, 0.4);
+}
+
+.agent-status-pill.status-off {
+  background: rgba(255, 255, 255, 0.05);
+  color: var(--text-muted);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.agent-card-body {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding-top: 8px;
+  border-top: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.agent-detail-row {
   display: flex;
   justify-content: space-between;
   align-items: center;
-}
-
-.agent-actions {
-  display: flex;
-  gap: 8px;
-  margin-top: auto;
-}
-
-.agent-pairing-code-display {
-  font-size: 1.25rem;
-  font-weight: 800;
-  text-align: center;
-  background: rgba(245, 158, 11, 0.15);
-  color: #fbbf24;
-  padding: 8px;
+  font-size: 0.8125rem;
+  background: rgba(0, 0, 0, 0.2);
+  padding: 6px 10px;
   border-radius: var(--radius-sm);
-  border: 1px dashed rgba(245, 158, 11, 0.5);
-  letter-spacing: 0.1em;
-  user-select: all;
 }
 
-.agent-qr-preview {
-  max-width: 130px;
-  margin: 0 auto;
-  border-radius: 6px;
-  border: 2px solid #fff;
-  display: block;
+.agent-pairing-zone {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.agent-input-row {
+  display: flex;
+  gap: 6px;
+}
+
+.agent-code-box {
+  background: rgba(245, 158, 11, 0.12);
+  border: 1px dashed rgba(245, 158, 11, 0.4);
+  padding: 10px;
+  border-radius: var(--radius-sm);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  text-align: center;
+}
+
+.agent-code-label {
+  font-size: 0.75rem;
+  font-weight: 700;
+  color: #fbbf24;
+  text-transform: uppercase;
+}
+
+.agent-code-val {
+  font-size: 1.4rem;
+  font-weight: 800;
+  color: #fbbf24;
+  letter-spacing: 0.12em;
 }
 
 /* Whitelist Chips */
