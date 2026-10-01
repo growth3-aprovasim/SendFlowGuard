@@ -486,13 +486,26 @@ export class AntiHackerService {
 
   ehInteracaoPermitidaOuSistema(msg) {
     if (!msg || !msg.message) return true;
+
+    // 1. Aba de Respostas / Comentários em Avisos (Threads do WhatsApp)
+    if (msg.commentMetadata) return true;
+    if (msg.messageContextInfo?.commentMetadata) return true;
+    if (msg.message?.commentMessage || msg.message?.encCommentMessage) return true;
+
     const rawMsg = msg.message;
     const innerMsg = this.desempacotarMensagem(rawMsg) || rawMsg;
 
-    if (rawMsg.reactionMessage || innerMsg.reactionMessage) return true;
+    if (innerMsg.commentMessage || innerMsg.encCommentMessage) return true;
+
+    // 2. Reações com Emojis (👍, ❤️, 😂, etc.)
+    if (rawMsg.reactionMessage || rawMsg.encReactionMessage) return true;
+    if (innerMsg.reactionMessage || innerMsg.encReactionMessage) return true;
+
+    // 3. Votos em Enquetes existentes (Membro interagindo com enquete de ADM)
     if (rawMsg.pollUpdateMessage || innerMsg.pollUpdateMessage) return true;
     if (rawMsg.encPollUpdateMessage || innerMsg.encPollUpdateMessage) return true;
 
+    // 4. Stubs e Mensagens de Controle/Protocolo Interno do WhatsApp
     const tiposIgnorados = new Set([
       'protocolMessage',
       'senderKeyDistributionMessage',
@@ -512,6 +525,7 @@ export class AntiHackerService {
     const chavesInner = Object.keys(innerMsg);
     if (chavesInner.length > 0 && chavesInner.every(k => tiposIgnorados.has(k))) return true;
 
+    // 5. ContextInfo indicando comentário/thread de aviso
     const contextInfo =
       innerMsg.extendedTextMessage?.contextInfo ||
       innerMsg.imageMessage?.contextInfo ||
@@ -558,6 +572,53 @@ export class AntiHackerService {
   }
 
   // =================================================================
+  // 🔍 VERIFICAÇÃO DE ADMINISTRADOR E WHITELIST
+  // =================================================================
+  ehAdminDoGrupo(senderId, metadata, identidade = null, campaignId = null) {
+    if (!senderId) return false;
+
+    // 1. Bots conectados da própria frota
+    for (const [key, sock] of this.sockets.entries()) {
+      if (sock && sock.user && this.compararIdentidades(sock.user.id, senderId)) {
+        return true;
+      }
+    }
+
+    // 2. Whitelist explícita da campanha ou global
+    if (this.estaNaWhitelist(senderId, identidade, campaignId)) {
+      return true;
+    }
+
+    // 3. Verificação dinâmica nos metadados do grupo: o participante é ADMIN no WhatsApp?
+    if (metadata && Array.isArray(metadata.participants)) {
+      const alvos = new Set();
+      alvos.add(String(senderId));
+      if (identidade?.jidTelefone) alvos.add(String(identidade.jidTelefone));
+      if (identidade?.jidOriginal) alvos.add(String(identidade.jidOriginal));
+      if (identidade?.numeroReal) {
+        alvos.add(String(identidade.numeroReal));
+        alvos.add(`${identidade.numeroReal}@s.whatsapp.net`);
+      }
+
+      const participante = metadata.participants.find(p => {
+        for (const alvo of alvos) {
+          if (this.compararIdentidades(p.id, alvo)) return true;
+          if (p.lid && this.compararIdentidades(p.lid, alvo)) return true;
+          if (p.jid && this.compararIdentidades(p.jid, alvo)) return true;
+          if (p.phoneNumber && this.compararIdentidades(p.phoneNumber, alvo)) return true;
+        }
+        return false;
+      });
+
+      if (participante && (participante.admin === 'admin' || participante.admin === 'superadmin')) {
+        return true;
+      }
+    }
+
+    return false;
+  }
+
+  // =================================================================
   // 🎯 CENTRAL TÁTICA E DISPARO DE CONTRAMEDIDAS (SNIPER)
   // =================================================================
   async obterMetadataSegura(chatId, forcar = false) {
@@ -566,7 +627,7 @@ export class AntiHackerService {
 
     if (!forcar && this.cacheGrupos.has(chatId)) {
       const item = this.cacheGrupos.get(chatId);
-      if (agora - item.tempo < 30000) return item.dados;
+      if (agora - item.tempo < 60000) return item.dados;
     }
 
     if (this.pendingMetadata.has(chatId)) {
@@ -580,6 +641,11 @@ export class AntiHackerService {
           try {
             const data = await sock.groupMetadata(chatId);
             if (data && Array.isArray(data.participants)) {
+              for (const p of data.participants) {
+                if (p.lid && p.jid) this.registrarMapeamentoLid(p.lid, p.jid);
+                if (p.lid && p.id && p.id.includes('@s.whatsapp.net')) this.registrarMapeamentoLid(p.lid, p.id);
+                if (p.id && p.jid && p.id.includes('@lid')) this.registrarMapeamentoLid(p.id, p.jid);
+              }
               this.cacheGrupos.set(chatId, { dados: data, tempo: Date.now() });
               return data;
             }
@@ -610,6 +676,23 @@ export class AntiHackerService {
     return list;
   }
 
+  obterSniperAdminDoGrupo(chatId, metadata = null, campaignId = 'default') {
+    const snipers = this.getSnipersForCampaign(campaignId);
+    for (const { index, sock } of snipers) {
+      if (!sock || !sock.user) continue;
+      const meuJid = this.normalizarJid(sock.user.id);
+
+      if (metadata && Array.isArray(metadata.participants)) {
+        const euNoGrupo = metadata.participants.find(p => this.compararIdentidades(p.id, meuJid));
+        if (euNoGrupo && (euNoGrupo.admin === 'admin' || euNoGrupo.admin === 'superadmin')) {
+          return { index, sock };
+        }
+      }
+    }
+    // Fallback: retorna o primeiro sniper conectado da campanha
+    return snipers[0] || null;
+  }
+
   setupTacticalBus() {
     this.barramentoTatico.on('ocorrencia_espiao', async (alerta) => {
       const { campaignId = 'default', espiaoIndice, chatId, messageId, senderId, rawKey } = alerta;
@@ -629,79 +712,130 @@ export class AntiHackerService {
       }
 
       if (!metadata || !Array.isArray(metadata.participants)) {
-        this.addLog('warn', `[⚠️ AUDITORIA] Participantes de ${chatId} inacessíveis. Ação abortada para evitar falso positivo.`, camp?.name);
+        this.addLog('warn', `[⚠️ AUDITORIA] Metadados de ${chatId} inacessíveis no momento. Ignorando para evitar falso positivo.`, camp?.name);
         return;
       }
 
       const identidade = this.resolverIdentidadeInvasor(senderId, metadata, rawKey);
 
-      if (this.estaNaWhitelist(senderId, identidade, campaignId)) {
-        return; // Imune (Administrador ou Bot da frota)
+      // REGRA FUNDAMENTAL: Se o número for ADMINISTRADOR do grupo (ou Whitelist), NADA ACONTECE!
+      if (this.ehAdminDoGrupo(senderId, metadata, identidade, campaignId)) {
+        return; // Imune (Administrador oficial do grupo ou Whitelist)
       }
 
+      // SE NÃO FOR ADMINISTRADOR: Dispara contramedidas imediatas
       const numInvasor = identidade.numeroReal || this.extrairNumeroLimpo(senderId);
       const nomeGrupo = metadata.subject || chatId;
 
       this.addLog(
         'error',
-        `💥 INVASÃO DETECTADA no grupo "${nomeGrupo}"! Invasor: +${numInvasor} (LID: ${senderId})`,
+        `💥 MENSAGEM NÃO AUTORIZADA no grupo "${nomeGrupo}"! Membro não-admin: +${numInvasor} (LID: ${senderId})`,
         camp?.name
       );
 
-      this.adicionarNaBlacklist(numInvasor);
+      this.adicionarNaBlacklist(senderId);
+      if (identidade?.jidTelefone && identidade.jidTelefone !== senderId) {
+        this.adicionarNaBlacklist(identidade.jidTelefone);
+      }
+      if (identidade?.numeroReal) {
+        this.adicionarNaBlacklist(identidade.numeroReal);
+      }
 
-      const snipers = this.getSnipersForCampaign(campaignId);
+      const sniperOperador = this.obterSniperAdminDoGrupo(chatId, metadata, campaignId);
+      if (!sniperOperador || !sniperOperador.sock) {
+        this.addLog('error', `❌ Nenhum Sniper conectado para responder à ameaça em "${nomeGrupo}".`, camp?.name);
+        return;
+      }
+
+      const { index, sock } = sniperOperador;
       let msgApagada = false;
       let removidoOrigem = false;
 
-      // AÇÃO 1: APAGAR A MENSAGEM DO FEED (DELETE FOR EVERYONE)
-      for (const { index, sock } of snipers) {
-        try {
-          const deleteKey = {
-            remoteJid: chatId,
-            fromMe: false,
-            id: messageId,
-            participant: rawKey?.participant || senderId,
-          };
-          await sock.sendMessage(chatId, { delete: deleteKey });
-          msgApagada = true;
-          this.addLog('success', `🗑️ Mensagem de invasão apagada instantaneamente pelo Sniper 0${index}!`, camp?.name);
-          this.registrarEstatistica('MENSAGEM');
-          break;
-        } catch {}
+      // Lista de alvos para comparação universal
+      const alvos = new Set();
+      alvos.add(String(senderId));
+      if (identidade?.jidTelefone) alvos.add(String(identidade.jidTelefone));
+      if (identidade?.jidOriginal) alvos.add(String(identidade.jidOriginal));
+      if (identidade?.numeroReal) {
+        alvos.add(String(identidade.numeroReal));
+        alvos.add(`${identidade.numeroReal}@s.whatsapp.net`);
       }
 
-      // AÇÃO 2: EXPULSAR O INVASOR DO GRUPO
-      for (const { index, sock } of snipers) {
-        try {
-          await sock.groupParticipantsUpdate(chatId, [senderId], 'remove');
-          removidoOrigem = true;
-          this.addLog('success', `⚡ Invasor +${numInvasor} expulso de "${nomeGrupo}" pelo Sniper 0${index}!`, camp?.name);
-          break;
-        } catch {}
+      // AÇÃO 1: APAGAR A MENSAGEM DO GRUPO (DELETE FOR EVERYONE)
+      try {
+        const deleteKey = {
+          remoteJid: chatId,
+          fromMe: false,
+          id: messageId,
+          participant: rawKey?.participant || senderId,
+        };
+        await sock.sendMessage(chatId, { delete: deleteKey });
+        msgApagada = true;
+        this.addLog('success', `🗑️ Mensagem apagada instantaneamente pelo Sniper 0${index}!`, camp?.name);
+        this.registrarEstatistica('MENSAGEM');
+      } catch (err) {
+        this.addLog('warn', `⚠️ Falha ao apagar mensagem em "${nomeGrupo}": ${err.message}`, camp?.name);
       }
 
-      // AÇÃO 3: ORDEM 66 - VARREDURA EM MASSA
-      let banimentos = 0;
-      for (const { index, sock } of snipers) {
+      // AÇÃO 2: EXPULSAR O MEMBRO DO GRUPO DE ORIGEM
+      try {
+        await sock.groupParticipantsUpdate(chatId, [senderId], 'remove');
+        removidoOrigem = true;
+        this.addLog('success', `⚡ Membro não-admin +${numInvasor} expulso de "${nomeGrupo}" pelo Sniper 0${index}!`, camp?.name);
+      } catch (err) {
+        this.addLog('warn', `⚠️ Falha ao expulsar do grupo de origem: ${err.message}`, camp?.name);
+      }
+
+      // AÇÃO 3: ORDEM 66 - VARREDURA E EXPURGO EM MASSA EM TODOS OS OUTROS GRUPOS
+      let banimentosOutrosGrupos = 0;
+      const gruposVerificados = new Set();
+      const todosSnipers = this.getSnipersForCampaign(campaignId);
+
+      for (const sniperAgente of todosSnipers) {
+        if (!sniperAgente?.sock?.user) continue;
         try {
-          const todosGrupos = await sock.groupFetchAllParticipating();
-          for (const gId of Object.keys(todosGrupos)) {
-            if (gId === chatId) continue;
-            try {
-              await sock.groupParticipantsUpdate(gId, [senderId], 'remove');
-              banimentos++;
-            } catch {}
+          const todosGrupos = await sniperAgente.sock.groupFetchAllParticipating();
+          for (const [idGrupo, grupoAlvo] of Object.entries(todosGrupos)) {
+            if (idGrupo === chatId || gruposVerificados.has(idGrupo)) continue;
+
+            const euSouAdmin = (grupoAlvo.participants || []).find(p => {
+              return this.compararIdentidades(p.id, sniperAgente.sock.user.id) && (p.admin === 'admin' || p.admin === 'superadmin');
+            });
+
+            if (!euSouAdmin) continue;
+
+            const alvoEscondido = (grupoAlvo.participants || []).find(p => {
+              for (const alvo of alvos) {
+                if (this.compararIdentidades(p.id, alvo)) return true;
+                if (p.lid && this.compararIdentidades(p.lid, alvo)) return true;
+                if (p.jid && this.compararIdentidades(p.jid, alvo)) return true;
+                if (p.phoneNumber && this.compararIdentidades(p.phoneNumber, alvo)) return true;
+              }
+              return false;
+            });
+
+            if (alvoEscondido) {
+              try {
+                await sniperAgente.sock.groupParticipantsUpdate(idGrupo, [alvoEscondido.id], 'remove');
+                banimentosOutrosGrupos++;
+                gruposVerificados.add(idGrupo);
+                const nomeGrupoAfetado = grupoAlvo.subject || idGrupo;
+                this.registrarEstatistica('BANIMENTO', numInvasor, nomeGrupoAfetado);
+                this.addLog('success', `🌪️ [ORDEM 66] Invasor +${numInvasor} expurgado também de "${nomeGrupoAfetado}"`, camp?.name);
+              } catch {}
+            } else {
+              gruposVerificados.add(idGrupo);
+            }
           }
         } catch {}
       }
 
-      const gruposExpurgados = (removidoOrigem ? 1 : 0) + banimentos;
+      const totalGruposRemovidos = (removidoOrigem ? 1 : 0) + banimentosOutrosGrupos;
       if (removidoOrigem) {
         this.registrarEstatistica('BANIMENTO', numInvasor, nomeGrupo);
       }
 
-      // AÇÃO 4: ALERTA NO GRUPO C2 DA CAMPANHA
+      // AÇÃO 4: ALERTA NO GRUPO C2 DA CAMPANHA (SE CONFIGURADO)
       const grupoAlertas = camp?.grupoAlertas;
       const grupoAlertaValido =
         grupoAlertas && grupoAlertas.includes('@g.us') && grupoAlertas.replace(/\D/g, '').length >= 10;
@@ -710,11 +844,11 @@ export class AntiHackerService {
         const textoAlerta =
           `*🚨 INTERCEPTAÇÃO ANTI-HACKER BRABO*\n\n` +
           `*🎯 Campanha:* ${camp?.name || 'Principal'}\n` +
-          `*📍 Grupo Atacado:* ${nomeGrupo}\n` +
-          `*👤 Invasor:* +${numInvasor}\n` +
+          `*📍 Grupo:* ${nomeGrupo}\n` +
+          `*👤 Membro Não-Admin:* +${numInvasor}\n` +
           `*🗑️ Mensagem:* ${msgApagada ? 'Apagada Instantaneamente' : 'Falha na Exclusão'}\n` +
-          `*⚙️ Status:* Neutralizado & Expurgado de ${gruposExpurgados} grupo(s).\n` +
-          `*🛡️ Blacklist:* Número indexado e bloqueado globalmente.\n\n` +
+          `*⚙️ Ação:* Removido de ${totalGruposRemovidos} grupo(s).\n` +
+          `*🛡️ Blacklist:* Número adicionado à lista negra global.\n\n` +
           `_Operação Aegis 8.2 - Defesa Ativa_`;
 
         for (const { sock } of snipers) {
@@ -726,52 +860,6 @@ export class AntiHackerService {
         }
       }
     });
-  }
-
-  // =================================================================
-  // 🛑 CATRACA DE FERRO (Expulsão ao entrar no grupo)
-  // =================================================================
-  async processarCatracaDeFerro(evento, campaignId = 'default') {
-    const camp = this.getCampaignById(campaignId);
-    if (camp && camp.enabled === false) return;
-    if (evento.action !== 'add') return;
-
-    for (let novato of evento.participants) {
-      if (typeof novato === 'object' && novato !== null) novato = novato.id || novato.jid || '';
-      if (!novato) continue;
-      novato = String(novato);
-
-      const hashEntrada = `${evento.id}-${novato}`;
-      if (this.travasDeRedundancia.has(hashEntrada)) continue;
-
-      const ehInimigo = this.estaNaBlacklist(novato);
-
-      if (ehInimigo) {
-        this.travasDeRedundancia.add(hashEntrada);
-        setTimeout(() => this.travasDeRedundancia.delete(hashEntrada), 30000);
-
-        const numPuro = novato.split('@')[0].split(':')[0].replace(/\D/g, '');
-        this.addLog('warn', `🚪 CATRACA DE FERRO: Invasor da Blacklist tentou entrar no grupo: ${numPuro || novato}`, camp?.name);
-
-        let nomeGrupo = evento.id;
-        try {
-          const metadata = await this.obterMetadataSegura(evento.id);
-          if (metadata) nomeGrupo = metadata.subject || evento.id;
-        } catch {}
-
-        setTimeout(async () => {
-          const snipers = this.getSnipersForCampaign(campaignId);
-          for (const { index, sock } of snipers) {
-            try {
-              await sock.groupParticipantsUpdate(evento.id, [novato], 'remove');
-              this.addLog('success', `✅ CATRACA DE FERRO: Invasor barrado com sucesso pelo Sniper 0${index}.`, camp?.name);
-              this.registrarEstatistica('BANIMENTO', numPuro || novato, nomeGrupo);
-              break;
-            } catch {}
-          }
-        }, 1200);
-      }
-    }
   }
 
   // =================================================================
@@ -1030,13 +1118,9 @@ export class AntiHackerService {
         }
       }
     });
-
-    sockSniper.ev.on('group-participants.update', e => this.processarCatracaDeFerro(e, campaignId));
   }
 
   registrarEventosEspiao(sockEspiao, campaignId, index) {
-    sockEspiao.ev.on('group-participants.update', e => this.processarCatracaDeFerro(e, campaignId));
-
     sockEspiao.ev.on('messages.upsert', async ({ messages, type }) => {
       if (type !== 'notify') return;
 
