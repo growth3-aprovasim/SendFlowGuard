@@ -182,6 +182,42 @@ export function createServer() {
     res.json({ success: true, stats: antiHackerService.cacheEstatisticas });
   });
 
+  // Configuração geral e rápida do Anti-Hacker (Grupo de Alertas, etc.)
+  app.get('/api/antihacker/config', (req, res) => {
+    res.json({ success: true, config: antiHackerService.config });
+  });
+
+  app.post('/api/antihacker/config', (req, res) => {
+    try {
+      const { grupoAlertas, qtdSnipers, qtdEspioes, whitelist, enabled, campaignId } = req.body;
+      const targetCampId = campaignId || 'default';
+
+      // Atualiza na campanha alvo ou padrão
+      const camp = antiHackerService.getCampaignById(targetCampId) || antiHackerService.campaigns[0];
+      if (camp) {
+        if (typeof grupoAlertas === 'string') camp.grupoAlertas = grupoAlertas.trim();
+        if (typeof qtdSnipers === 'number') camp.qtdSnipers = Math.max(1, Math.min(10, qtdSnipers));
+        if (typeof qtdEspioes === 'number') camp.qtdEspioes = Math.max(1, Math.min(20, qtdEspioes));
+        if (Array.isArray(whitelist)) camp.whitelist = whitelist;
+        if (typeof enabled === 'boolean') camp.enabled = enabled;
+        camp.updatedAt = new Date().toISOString();
+        antiHackerService.saveCampaigns();
+      }
+
+      // Atualiza também na config global
+      if (typeof grupoAlertas === 'string') antiHackerService.config.grupoAlertas = grupoAlertas.trim();
+      if (typeof qtdSnipers === 'number') antiHackerService.config.qtdSnipers = qtdSnipers;
+      if (typeof qtdEspioes === 'number') antiHackerService.config.qtdEspioes = qtdEspioes;
+      if (Array.isArray(whitelist)) antiHackerService.config.whitelist = whitelist;
+      if (typeof enabled === 'boolean') antiHackerService.config.enabled = enabled;
+      antiHackerService.saveConfig();
+
+      res.json({ success: true, config: antiHackerService.config, campaign: camp });
+    } catch (err) {
+      res.status(400).json({ success: false, error: err.message });
+    }
+  });
+
   // ==========================================
   // ROTAS DE CONEXÃO WHATSAPP (PAIRING CODE)
   // ==========================================

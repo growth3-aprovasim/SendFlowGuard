@@ -281,7 +281,8 @@ export class VerifierService {
         `[Auto-Recuperação] Solicitando novo link para "${group.name}" (${campaign.name}) no SendFlow (${safety.count + 1}/4 na janela)...`
       );
 
-      const updateResult = await sendflowClient.updateGroupInviteCode(group.id, campaign.releaseId, {
+      const targetId = group.gid || group.jid || group.id;
+      const updateResult = await sendflowClient.updateGroupInviteCode(targetId, campaign.releaseId, {
         accountsFrom: campaign.accountsFrom,
         accounts: campaign.accounts,
       });

@@ -328,12 +328,13 @@ function setupEventListeners() {
     saveAegisAlertGroupBtn.addEventListener('click', async () => {
       try {
         const val = aegisGrupoAlertasInput.value.trim();
+        const campId = state.aegis?.selectedCampaignId || 'default';
         saveAegisAlertGroupBtn.disabled = true;
         saveAegisAlertGroupBtn.textContent = 'Salvando...';
         const res = await fetch('/api/antihacker/config', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ grupoAlertas: val }),
+          body: JSON.stringify({ grupoAlertas: val, campaignId: campId }),
         });
         const data = await res.json();
         saveAegisAlertGroupBtn.disabled = false;
@@ -357,10 +358,11 @@ function setupEventListeners() {
     aegisQtdSnipersSelect.addEventListener('change', async () => {
       try {
         const val = parseInt(aegisQtdSnipersSelect.value, 10);
+        const campId = state.aegis?.selectedCampaignId || 'default';
         await fetch('/api/antihacker/config', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ qtdSnipers: val }),
+          body: JSON.stringify({ qtdSnipers: val, campaignId: campId }),
         });
         fetchAntiHackerStatus();
       } catch (err) {
@@ -374,10 +376,11 @@ function setupEventListeners() {
     aegisQtdEspioesSelect.addEventListener('change', async () => {
       try {
         const val = parseInt(aegisQtdEspioesSelect.value, 10);
+        const campId = state.aegis?.selectedCampaignId || 'default';
         await fetch('/api/antihacker/config', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ qtdEspioes: val }),
+          body: JSON.stringify({ qtdEspioes: val, campaignId: campId }),
         });
         fetchAntiHackerStatus();
       } catch (err) {

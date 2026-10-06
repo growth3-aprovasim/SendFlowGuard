@@ -244,12 +244,42 @@ export class SendFlowClient {
     const accountsFrom = options.accountsFrom || config.sendflow.accountsFrom || 'release';
     const accounts = options.accounts || config.sendflow.accounts || [];
 
+    const cleanReleaseId = releaseId.trim();
+    const cachedGroups = this.getCachedGroups(cleanReleaseId);
+
+    // Converte e higieniza para o gID numérico do WhatsApp sem sufixos (@g.us)
+    const formattedIds = ids.map(item => {
+      let raw = typeof item === 'object' && item !== null ? (item.gid || item.jid || item.id || '') : String(item);
+      raw = raw.trim();
+
+      // Se for um ID interno do SendFlow (alfanumérico de documento), tenta resolver para o gID real no cache
+      if (raw && !raw.includes('@') && !/^\d+(-\d+)?$/.test(raw)) {
+        let found = cachedGroups.find(g => String(g.id) === raw);
+        if (!found) {
+          for (const groups of this.cachedGroupsByRelease.values()) {
+            found = groups.find(g => String(g.id) === raw);
+            if (found) break;
+          }
+        }
+        if (found && (found.gid || found.jid)) {
+          raw = String(found.gid || found.jid);
+        }
+      }
+
+      // Remove sufixos como @g.us ou @s.whatsapp.net
+      return raw.replace(/@(g\.us|s\.whatsapp\.net)$/i, '').trim();
+    }).filter(Boolean);
+
+    if (formattedIds.length === 0) {
+      throw new Error('Nenhum gID numérico válido pôde ser extraído para os grupos informados.');
+    }
+
     const payload = {
-      releaseId: releaseId.trim(),
+      releaseId: cleanReleaseId,
       accountsFrom,
       to: {
         type: 'groups',
-        ids: ids.map(id => String(id)),
+        ids: formattedIds,
       },
     };
 
